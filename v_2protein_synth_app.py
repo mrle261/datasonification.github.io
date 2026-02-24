@@ -356,7 +356,7 @@ def build_audio_component(wt_seq: str, mut_seq: str, bpm: int) -> str:
   <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Polar uncharged — woodwind</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--s3)"></div>Positive charged — brass</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--s4)"></div>Negative charged — pizzicato</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — dissonant tritone cluster</div>
+  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — wrong piano key (off-pitch, detuned)</div>
 </div>
 
 <script>
@@ -416,85 +416,84 @@ function makeTile(aa, scale, idx, prefix, isMut, pos) {{
 }}
 
 // ── Audio ─────────────────────────────────────
-// Four orchestral synths (one per hydrophobicity group) + dedicated dissonance engine for mutations
-let synths = {{}}, hall;
-// Mutation dissonance chain: distortion → chorus → reverb
-let mutSynthA, mutSynthB, mutDist, mutChorus, mutReverb;
+// Chamber orchestra (4 voiced groups) + "wrong piano key" mutation engine
+let synths = {{}}, room, masterComp;
+let wrongPiano, wrongPianoRoom;
 
-// Helper: shift a note string up by N semitones
-// e.g. tritoneAbove("C4") → "F#4"
+// ── Semitone shift utility ────────────────────
 function semitoneShift(note, semitones) {{
-  const noteOrder = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const match = note.match(/^([A-G]#?)(\d+)$/);
-  if (!match) return note;
-  const [_, name, octStr] = match;
-  let oct = parseInt(octStr);
-  let idx = noteOrder.indexOf(name);
+  const notes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const m = note.match(/^([A-G]#?)(\d+)$/);
+  if (!m) return note;
+  let idx = notes.indexOf(m[1]);
+  let oct = parseInt(m[2]);
   idx += semitones;
   while (idx >= 12) {{ idx -= 12; oct++; }}
-  while (idx < 0)  {{ idx += 12; oct--; }}
-  return noteOrder[idx] + oct;
+  while (idx <  0)  {{ idx += 12; oct--; }}
+  return notes[idx] + oct;
 }}
 
 async function initAudio() {{
   await Tone.start();
 
-  // Shared concert-hall reverb for the orchestra
-  hall = new Tone.Reverb({{ decay: 3.5, wet: 0.38 }}).toDestination();
+  // ── Master compressor — glues the ensemble together ──
+  masterComp = new Tone.Compressor({{
+    threshold: -20, ratio: 3, attack: 0.08, release: 0.25, knee: 6
+  }}).toDestination();
 
-  // Group 1 — Hydrophobic → warm strings (AMSynth, slow bow attack)
+  // ── Small chamber-hall reverb — intimate, not cavernous ──
+  // All orchestral voices route: synth → room → masterComp → out
+  room = new Tone.Reverb({{ decay: 1.4, wet: 0.22, preDelay: 0.01 }}).connect(masterComp);
+
+  // ── Group 1 — Hydrophobic → Strings ─────────────────────────────────────
+  // AMSynth gives a natural bowing overtone. Slow attack = legato bow stroke.
+  // Harmonicity 1.5 = warm, not metallic. Low octave (3) = cello / viola body.
   synths[1] = new Tone.PolySynth(Tone.AMSynth, {{
-    harmonicity: 2.5,
+    harmonicity: 1.5,
     oscillator: {{ type: 'sine' }},
-    envelope: {{ attack: 0.18, decay: 0.1, sustain: 0.85, release: 1.4 }},
-    modulation: {{ type: 'triangle' }},
-    modulationEnvelope: {{ attack: 0.5, decay: 0.1, sustain: 1, release: 0.5 }}
-  }}).connect(hall);
-  synths[1].volume.value = -8;
+    envelope: {{ attack: 0.22, decay: 0.05, sustain: 0.92, release: 1.8 }},
+    modulation: {{ type: 'sine' }},
+    modulationEnvelope: {{ attack: 0.6, decay: 0.1, sustain: 0.9, release: 1.0 }}
+  }}).connect(room);
+  synths[1].volume.value = -6;
 
-  // Group 2 — Polar uncharged → woodwind (FMSynth, breathy)
+  // ── Group 2 — Polar uncharged → Woodwind (flute) ────────────────────────
+  // FMSynth with low modulation index = breathy, pure flute tone.
+  // Medium attack = flute breath onset. Higher octave (5) = bright, singing.
   synths[2] = new Tone.PolySynth(Tone.FMSynth, {{
-    harmonicity: 3,
-    modulationIndex: 8,
+    harmonicity: 4,
+    modulationIndex: 3,
     oscillator: {{ type: 'sine' }},
-    envelope: {{ attack: 0.09, decay: 0.2, sustain: 0.7, release: 0.9 }},
-    modulation: {{ type: 'square' }},
-    modulationEnvelope: {{ attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.4 }}
-  }}).connect(hall);
+    envelope: {{ attack: 0.07, decay: 0.05, sustain: 0.8, release: 0.7 }},
+    modulation: {{ type: 'sine' }},
+    modulationEnvelope: {{ attack: 0.2, decay: 0.1, sustain: 0.5, release: 0.5 }}
+  }}).connect(room);
   synths[2].volume.value = -10;
 
-  // Group 3 — Positive charged → brass (Synth, punchy sawtooth)
+  // ── Group 3 — Positive charged → French horn ────────────────────────────
+  // Sine with gentle attack = warm French horn. NOT sawtooth (too brash).
+  // Stays in the mid register (octave 3) and stays quiet — supportive, not dominant.
   synths[3] = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'sawtooth' }},
-    envelope: {{ attack: 0.04, decay: 0.15, sustain: 0.6, release: 0.7 }},
-  }}).connect(hall);
-  synths[3].volume.value = -12;
+    oscillator: {{ type: 'sine' }},
+    envelope: {{ attack: 0.16, decay: 0.1, sustain: 0.75, release: 1.0 }}
+  }}).connect(room);
+  synths[3].volume.value = -14;
 
-  // Group 4 — Negative charged → pizzicato (PluckSynth, short pluck)
-  synths[4] = null; // handled per-note in playNote()
+  // ── Group 4 — Negative charged → Pizzicato (harp-like) ──────────────────
+  // PluckSynth, handled per-note. Warm dampening = harp not guitar twang.
+  synths[4] = null;
 
-  // ── Mutation dissonance engine ──────────────────────────────────────────
-  // Signal chain: mutSynthA + mutSynthB → Distortion → Chorus → Reverb → out
-  // mutSynthA plays the base note, mutSynthB plays the tritone above it.
-  // Together they form a harsh, grinding tritone cluster.
-  mutReverb  = new Tone.Reverb({{ decay: 2.0, wet: 0.45 }}).toDestination();
-  mutChorus  = new Tone.Chorus({{ frequency: 3.5, delayTime: 3.5, depth: 0.7, wet: 0.5 }}).connect(mutReverb);
-  mutChorus.start();
-  mutDist    = new Tone.Distortion({{ distortion: 0.55, wet: 0.7 }}).connect(mutChorus);
-
-  // Voice A — base note, square wave (buzzy, unpleasant)
-  mutSynthA = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'square' }},
-    envelope: {{ attack: 0.02, decay: 0.3, sustain: 0.5, release: 1.5 }}
-  }}).connect(mutDist);
-  mutSynthA.volume.value = -6;
-
-  // Voice B — tritone above (6 semitones), sawtooth for extra grit
-  mutSynthB = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'sawtooth' }},
-    envelope: {{ attack: 0.02, decay: 0.3, sustain: 0.5, release: 1.5 }}
-  }}).connect(mutDist);
-  mutSynthB.volume.value = -8;
+  // ── Wrong piano key — mutation voice ────────────────────────────────────
+  // A clean, exposed piano-strike timbre. No heavy FX — the wrongness comes
+  // entirely from PITCH (semitone off) + DETUNE (-28 cents = out-of-tune upright).
+  // Minimal reverb so it sounds naked and jarring against the warm orchestra.
+  wrongPianoRoom = new Tone.Reverb({{ decay: 0.6, wet: 0.12 }}).connect(masterComp);
+  wrongPiano = new Tone.PolySynth(Tone.Synth, {{
+    oscillator: {{ type: 'triangle' }},     // triangle ≈ piano overtone profile
+    envelope: {{ attack: 0.001, decay: 0.45, sustain: 0.08, release: 1.0 }}
+  }}).connect(wrongPianoRoom);
+  wrongPiano.set({{ detune: -28 }});         // flat — like a badly tuned upright piano
+  wrongPiano.volume.value = 3;              // louder: exposed, impossible to miss
 
   const btn = document.getElementById('initBtn');
   btn.textContent = '✓ AUDIO READY';
@@ -506,22 +505,22 @@ async function initAudio() {{
   document.getElementById('status').textContent = '— ready —';
 }}
 
-function playMutation(note, time) {{
-  // Tritone cluster: base + 6 semitones (tritone) + 1 semitone (minor 2nd above tritone)
-  // The minor 2nd on top of the tritone makes it maximally dissonant
-  const tritone  = semitoneShift(note, 6);
-  const minor2nd = semitoneShift(note, 7);  // one semitone above the tritone
-  mutSynthA.triggerAttackRelease(note,     '4n', time);
-  mutSynthA.triggerAttackRelease(minor2nd, '4n', time);  // cluster on voice A
-  mutSynthB.triggerAttackRelease(tritone,  '4n', time);  // tritone on voice B
+// ── Wrong note: shift +1 semitone (finger slipped one key) ──────────────────
+// Every C major note shifted +1 semitone lands on a black key (chromatic),
+// except E→F and B→C. Those edge cases still sound wrong in melodic context,
+// and the -28 cent detune makes even "in-key" arrivals sound like a bad piano.
+function playWrongNote(note, time) {{
+  const wrongNote = semitoneShift(note, 1);   // one key to the right
+  wrongPiano.triggerAttackRelease(wrongNote, '4n', time);
 }}
 
 function playNote(group, note, duration, time) {{
   if (group === 4) {{
+    // PluckSynth: warm harp dampening, not sharp guitar twang
     const pluck = new Tone.PluckSynth({{
-      attackNoise: 1.2, dampening: 3800, resonance: 0.97
-    }}).connect(hall);
-    pluck.volume.value = -6;
+      attackNoise: 0.5, dampening: 3200, resonance: 0.95
+    }}).connect(room);
+    pluck.volume.value = -4;
     pluck.triggerAttackRelease(note, duration, time);
   }} else if (synths[group]) {{
     synths[group].triggerAttackRelease(note, duration, time);
@@ -530,14 +529,16 @@ function playNote(group, note, duration, time) {{
 
 function testBeep() {{
   if (!synths[1]) return;
-  // Play a short chord cadence then a dissonant mutation cluster to demo the contrast
+  // Play a clean Mozart-like C major arpeggio, then a wrong piano note
+  // so the contrast is immediately, viscerally obvious.
   const t = Tone.now();
   playNote(1, 'C3', '4n', t);
-  playNote(2, 'E3', '4n', t + 0.15);
-  playNote(3, 'G3', '4n', t + 0.30);
-  playNote(4, 'C4', '4n', t + 0.45);
-  // Then the dissonant cluster so the contrast is immediately clear
-  playMutation('C4', t + 1.1);
+  playNote(2, 'E4', '4n', t + 0.22);
+  playNote(3, 'G3', '4n', t + 0.44);
+  playNote(2, 'C5', '4n', t + 0.66);
+  playNote(1, 'E3', '4n', t + 0.88);
+  // ← then the wrong note crashes in
+  playWrongNote('G4', t + 1.3);
 }}
 
 function updateBpm(val) {{
@@ -574,7 +575,7 @@ function setupPart() {{
 
   part = new Tone.Part((time, val) => {{
     if (val.isMut && seqType === 'mut') {{
-      playMutation(val.note, time);
+      playWrongNote(val.note, time);   // piano key slipped one semitone, detuned
     }} else {{
       playNote(val.group, val.note, durations[val.group], time);
     }}
