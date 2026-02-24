@@ -356,7 +356,7 @@ def build_audio_component(wt_seq: str, mut_seq: str, bpm: int) -> str:
   <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Polar uncharged — woodwind</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--s3)"></div>Positive charged — brass</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--s4)"></div>Negative charged — pizzicato</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — bell tone, octave up</div>
+  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — dissonant tritone cluster</div>
 </div>
 
 <script>
@@ -416,13 +416,30 @@ function makeTile(aa, scale, idx, prefix, isMut, pos) {{
 }}
 
 // ── Audio ─────────────────────────────────────
-// Four synths, one per hydrophobicity group + a bell for mutations
-let synths = {{}}, mutSynth, hall, mutReverb;
+// Four orchestral synths (one per hydrophobicity group) + dedicated dissonance engine for mutations
+let synths = {{}}, hall;
+// Mutation dissonance chain: distortion → chorus → reverb
+let mutSynthA, mutSynthB, mutDist, mutChorus, mutReverb;
+
+// Helper: shift a note string up by N semitones
+// e.g. tritoneAbove("C4") → "F#4"
+function semitoneShift(note, semitones) {{
+  const noteOrder = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const match = note.match(/^([A-G]#?)(\d+)$/);
+  if (!match) return note;
+  const [_, name, octStr] = match;
+  let oct = parseInt(octStr);
+  let idx = noteOrder.indexOf(name);
+  idx += semitones;
+  while (idx >= 12) {{ idx -= 12; oct++; }}
+  while (idx < 0)  {{ idx += 12; oct--; }}
+  return noteOrder[idx] + oct;
+}}
 
 async function initAudio() {{
   await Tone.start();
 
-  // Shared concert-hall reverb (all voices go through this)
+  // Shared concert-hall reverb for the orchestra
   hall = new Tone.Reverb({{ decay: 3.5, wet: 0.38 }}).toDestination();
 
   // Group 1 — Hydrophobic → warm strings (AMSynth, slow bow attack)
@@ -454,16 +471,30 @@ async function initAudio() {{
   synths[3].volume.value = -12;
 
   // Group 4 — Negative charged → pizzicato (PluckSynth, short pluck)
-  // PluckSynth doesn't support PolySynth — instantiate one per note played
-  synths[4] = null; // handled specially in playNote()
+  synths[4] = null; // handled per-note in playNote()
 
-  // Mutation bell — triangle + heavy reverb, bright and airy
-  mutReverb = new Tone.Reverb({{ decay: 4, wet: 0.65 }}).toDestination();
-  mutSynth = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'triangle' }},
-    envelope: {{ attack: 0.001, decay: 0.6, sustain: 0.0, release: 2.0 }}
-  }}).connect(mutReverb);
-  mutSynth.volume.value = 0;
+  // ── Mutation dissonance engine ──────────────────────────────────────────
+  // Signal chain: mutSynthA + mutSynthB → Distortion → Chorus → Reverb → out
+  // mutSynthA plays the base note, mutSynthB plays the tritone above it.
+  // Together they form a harsh, grinding tritone cluster.
+  mutReverb  = new Tone.Reverb({{ decay: 2.0, wet: 0.45 }}).toDestination();
+  mutChorus  = new Tone.Chorus({{ frequency: 3.5, delayTime: 3.5, depth: 0.7, wet: 0.5 }}).connect(mutReverb);
+  mutChorus.start();
+  mutDist    = new Tone.Distortion({{ distortion: 0.55, wet: 0.7 }}).connect(mutChorus);
+
+  // Voice A — base note, square wave (buzzy, unpleasant)
+  mutSynthA = new Tone.PolySynth(Tone.Synth, {{
+    oscillator: {{ type: 'square' }},
+    envelope: {{ attack: 0.02, decay: 0.3, sustain: 0.5, release: 1.5 }}
+  }}).connect(mutDist);
+  mutSynthA.volume.value = -6;
+
+  // Voice B — tritone above (6 semitones), sawtooth for extra grit
+  mutSynthB = new Tone.PolySynth(Tone.Synth, {{
+    oscillator: {{ type: 'sawtooth' }},
+    envelope: {{ attack: 0.02, decay: 0.3, sustain: 0.5, release: 1.5 }}
+  }}).connect(mutDist);
+  mutSynthB.volume.value = -8;
 
   const btn = document.getElementById('initBtn');
   btn.textContent = '✓ AUDIO READY';
@@ -475,9 +506,18 @@ async function initAudio() {{
   document.getElementById('status').textContent = '— ready —';
 }}
 
+function playMutation(note, time) {{
+  // Tritone cluster: base + 6 semitones (tritone) + 1 semitone (minor 2nd above tritone)
+  // The minor 2nd on top of the tritone makes it maximally dissonant
+  const tritone  = semitoneShift(note, 6);
+  const minor2nd = semitoneShift(note, 7);  // one semitone above the tritone
+  mutSynthA.triggerAttackRelease(note,     '4n', time);
+  mutSynthA.triggerAttackRelease(minor2nd, '4n', time);  // cluster on voice A
+  mutSynthB.triggerAttackRelease(tritone,  '4n', time);  // tritone on voice B
+}}
+
 function playNote(group, note, duration, time) {{
   if (group === 4) {{
-    // PluckSynth — create one, connect, play, auto-dispose
     const pluck = new Tone.PluckSynth({{
       attackNoise: 1.2, dampening: 3800, resonance: 0.97
     }}).connect(hall);
@@ -490,10 +530,14 @@ function playNote(group, note, duration, time) {{
 
 function testBeep() {{
   if (!synths[1]) return;
-  playNote(1, 'C3', '4n', Tone.now());
-  playNote(2, 'E3', '4n', Tone.now() + 0.15);
-  playNote(3, 'G3', '4n', Tone.now() + 0.30);
-  playNote(4, 'C4', '4n', Tone.now() + 0.45);
+  // Play a short chord cadence then a dissonant mutation cluster to demo the contrast
+  const t = Tone.now();
+  playNote(1, 'C3', '4n', t);
+  playNote(2, 'E3', '4n', t + 0.15);
+  playNote(3, 'G3', '4n', t + 0.30);
+  playNote(4, 'C4', '4n', t + 0.45);
+  // Then the dissonant cluster so the contrast is immediately clear
+  playMutation('C4', t + 1.1);
 }}
 
 function updateBpm(val) {{
@@ -530,10 +574,7 @@ function setupPart() {{
 
   part = new Tone.Part((time, val) => {{
     if (val.isMut && seqType === 'mut') {{
-      // Bell accent for mutation
-      mutSynth.triggerAttackRelease(val.note, '2n', time);
-      // Ghost note from the group synth underneath
-      playNote(val.group, val.note, '8n', time);
+      playMutation(val.note, time);
     }} else {{
       playNote(val.group, val.note, durations[val.group], time);
     }}
