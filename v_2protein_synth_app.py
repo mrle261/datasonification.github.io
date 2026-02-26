@@ -316,6 +316,10 @@ def build_audio_component(wt_seq: str, mut_seq: str, bpm: int) -> str:
   <input type="range" id="bpmSlider" min="60" max="450" value="{bpm}" oninput="updateBpm(this.value)" disabled>
   <span class="bpm-val" id="bpmVal">{bpm}</span>
 
+  <label style="color:#a78bfa;">KEY OFFSET</label>
+  <input type="range" id="keyOffset" min="-12" max="12" value="5" oninput="updateKeyOffset(this.value)" disabled style="accent-color:#a78bfa; width:80px;">
+  <span class="bpm-val" id="keyOffsetVal" style="color:#a78bfa; min-width:30px;">+5</span>
+
   <label>PLAY</label>
   <select id="seqSelect" disabled>
     <option value="wt">Wild-Type</option>
@@ -352,11 +356,11 @@ def build_audio_component(wt_seq: str, mut_seq: str, bpm: int) -> str:
 
 <!-- ── Legend ───────────────────────────────── -->
 <div class="legend" style="margin-top:14px; padding: 0 4px;">
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s1)"></div>Hydrophobic — strings</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Polar uncharged — woodwind</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s3)"></div>Positive charged — brass</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s4)"></div>Negative charged — pizzicato</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — wrong piano key (off-pitch, detuned)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s1)"></div>Hydrophobic — vibraphone</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Polar uncharged — piano</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s3)"></div>Positive charged — harp (warm)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s4)"></div>Negative charged — harp (bright)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated — piano + key offset</div>
 </div>
 
 <script>
@@ -416,9 +420,16 @@ function makeTile(aa, scale, idx, prefix, isMut, pos) {{
 }}
 
 // ── Audio ─────────────────────────────────────
-// Chamber orchestra (4 voiced groups) + "wrong piano key" mutation engine
-let synths = {{}}, room, masterComp;
-let wrongPiano, wrongPianoRoom;
+// Instruments inspired by the original Max patch:
+//   Group 1 (Hydrophobic)      → Vibraphone  (FM mallet synthesis)
+//   Group 2 (Polar uncharged)  → Piano       (Salamander real samples)
+//   Group 3 (Positive charged) → Harp low    (PluckSynth, warm)
+//   Group 4 (Negative charged) → Harp high   (PluckSynth, bright)
+//   Mutations                  → Piano + Key Offset (original deviation indicator)
+
+let vibraSynth, pianoSampler, pianoLoaded = false;
+let masterComp, room;
+let keyOffsetSemitones = 5;
 
 // ── Semitone shift utility ────────────────────
 function semitoneShift(note, semitones) {{
@@ -433,67 +444,58 @@ function semitoneShift(note, semitones) {{
   return notes[idx] + oct;
 }}
 
+function updateKeyOffset(val) {{
+  keyOffsetSemitones = parseInt(val);
+  const sign = val >= 0 ? '+' : '';
+  document.getElementById('keyOffsetVal').textContent = sign + val;
+}}
+
 async function initAudio() {{
   await Tone.start();
 
-  // ── Master compressor — glues the ensemble together ──
+  // Master compressor — glues everything like a mixing desk
   masterComp = new Tone.Compressor({{
-    threshold: -20, ratio: 3, attack: 0.08, release: 0.25, knee: 6
+    threshold: -18, ratio: 3.5, attack: 0.05, release: 0.3, knee: 8
   }}).toDestination();
 
-  // ── Small chamber-hall reverb — intimate, not cavernous ──
-  // All orchestral voices route: synth → room → masterComp → out
-  room = new Tone.Reverb({{ decay: 1.4, wet: 0.22, preDelay: 0.01 }}).connect(masterComp);
+  // Small chamber room reverb — intimate, like a recital hall
+  room = new Tone.Reverb({{ decay: 1.6, wet: 0.25, preDelay: 0.015 }}).connect(masterComp);
 
-  // ── Group 1 — Hydrophobic → Strings ─────────────────────────────────────
-  // AMSynth gives a natural bowing overtone. Slow attack = legato bow stroke.
-  // Harmonicity 1.5 = warm, not metallic. Low octave (3) = cello / viola body.
-  synths[1] = new Tone.PolySynth(Tone.AMSynth, {{
-    harmonicity: 1.5,
+  // ── Vibraphone (Group 1 — Hydrophobic) ──────────────────────────────────
+  // FMSynth: harmonicity 1 = pure mallet, low modIdx = metallic shimmer.
+  // Fast attack (mallet strike), decaying sustain = vibraphone resonance.
+  vibraSynth = new Tone.PolySynth(Tone.FMSynth, {{
+    harmonicity: 1,
+    modulationIndex: 2.5,
     oscillator: {{ type: 'sine' }},
-    envelope: {{ attack: 0.22, decay: 0.05, sustain: 0.92, release: 1.8 }},
+    envelope: {{ attack: 0.001, decay: 0.8, sustain: 0.3, release: 1.6 }},
     modulation: {{ type: 'sine' }},
-    modulationEnvelope: {{ attack: 0.6, decay: 0.1, sustain: 0.9, release: 1.0 }}
+    modulationEnvelope: {{ attack: 0.001, decay: 0.5, sustain: 0.1, release: 0.8 }}
   }}).connect(room);
-  synths[1].volume.value = -6;
+  vibraSynth.volume.value = -6;
 
-  // ── Group 2 — Polar uncharged → Woodwind (flute) ────────────────────────
-  // FMSynth with low modulation index = breathy, pure flute tone.
-  // Medium attack = flute breath onset. Higher octave (5) = bright, singing.
-  synths[2] = new Tone.PolySynth(Tone.FMSynth, {{
-    harmonicity: 4,
-    modulationIndex: 3,
-    oscillator: {{ type: 'sine' }},
-    envelope: {{ attack: 0.07, decay: 0.05, sustain: 0.8, release: 0.7 }},
-    modulation: {{ type: 'sine' }},
-    modulationEnvelope: {{ attack: 0.2, decay: 0.1, sustain: 0.5, release: 0.5 }}
+  // ── Piano sampler (Groups 2 + mutations) — Salamander real recordings ───
+  // Closest available equivalent to the original Max "Bright Acoustic Piano".
+  document.getElementById('status').textContent = '⏳ loading piano samples…';
+  pianoSampler = new Tone.Sampler({{
+    urls: {{
+      A0:'A0.mp3', C1:'C1.mp3', 'D#1':'Ds1.mp3', 'F#1':'Fs1.mp3',
+      A1:'A1.mp3', C2:'C2.mp3', 'D#2':'Ds2.mp3', 'F#2':'Fs2.mp3',
+      A2:'A2.mp3', C3:'C3.mp3', 'D#3':'Ds3.mp3', 'F#3':'Fs3.mp3',
+      A3:'A3.mp3', C4:'C4.mp3', 'D#4':'Ds4.mp3', 'F#4':'Fs4.mp3',
+      A4:'A4.mp3', C5:'C5.mp3', 'D#5':'Ds5.mp3', 'F#5':'Fs5.mp3',
+      A5:'A5.mp3', C6:'C6.mp3', 'D#6':'Ds6.mp3', 'F#6':'Fs6.mp3',
+      A6:'A6.mp3', C7:'C7.mp3', 'D#7':'Ds7.mp3', 'F#7':'Fs7.mp3',
+      A7:'A7.mp3', C8:'C8.mp3'
+    }},
+    release: 1.2,
+    baseUrl: 'https://tonejs.github.io/audio/salamander/',
+    onload: () => {{
+      pianoLoaded = true;
+      document.getElementById('status').textContent = '— ready —';
+    }}
   }}).connect(room);
-  synths[2].volume.value = -10;
-
-  // ── Group 3 — Positive charged → French horn ────────────────────────────
-  // Sine with gentle attack = warm French horn. NOT sawtooth (too brash).
-  // Stays in the mid register (octave 3) and stays quiet — supportive, not dominant.
-  synths[3] = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'sine' }},
-    envelope: {{ attack: 0.16, decay: 0.1, sustain: 0.75, release: 1.0 }}
-  }}).connect(room);
-  synths[3].volume.value = -14;
-
-  // ── Group 4 — Negative charged → Pizzicato (harp-like) ──────────────────
-  // PluckSynth, handled per-note. Warm dampening = harp not guitar twang.
-  synths[4] = null;
-
-  // ── Wrong piano key — mutation voice ────────────────────────────────────
-  // A clean, exposed piano-strike timbre. No heavy FX — the wrongness comes
-  // entirely from PITCH (semitone off) + DETUNE (-28 cents = out-of-tune upright).
-  // Minimal reverb so it sounds naked and jarring against the warm orchestra.
-  wrongPianoRoom = new Tone.Reverb({{ decay: 0.6, wet: 0.12 }}).connect(masterComp);
-  wrongPiano = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'triangle' }},     // triangle ≈ piano overtone profile
-    envelope: {{ attack: 0.001, decay: 0.45, sustain: 0.08, release: 1.0 }}
-  }}).connect(wrongPianoRoom);
-  wrongPiano.set({{ detune: -28 }});         // flat — like a badly tuned upright piano
-  wrongPiano.volume.value = 3;              // louder: exposed, impossible to miss
+  pianoSampler.volume.value = -4;
 
   const btn = document.getElementById('initBtn');
   btn.textContent = '✓ AUDIO READY';
@@ -502,43 +504,45 @@ async function initAudio() {{
   document.getElementById('beepBtn').disabled   = false;
   document.getElementById('bpmSlider').disabled = false;
   document.getElementById('seqSelect').disabled = false;
-  document.getElementById('status').textContent = '— ready —';
+  document.getElementById('keyOffset').disabled = false;
+  document.getElementById('status').textContent = '⏳ loading piano samples…';
 }}
 
-// ── Wrong note: shift +1 semitone (finger slipped one key) ──────────────────
-// Every C major note shifted +1 semitone lands on a black key (chromatic),
-// except E→F and B→C. Those edge cases still sound wrong in melodic context,
-// and the -28 cent detune makes even "in-key" arrivals sound like a bad piano.
-function playWrongNote(note, time) {{
-  const wrongNote = semitoneShift(note, 1);   // one key to the right
-  wrongPiano.triggerAttackRelease(wrongNote, '4n', time);
+// ── Harp voices (PluckSynth per note) ────────────────────────────────────
+function pluckHarp(note, time, bright) {{
+  const h = new Tone.PluckSynth({{
+    attackNoise: bright ? 0.8 : 0.4,
+    dampening:   bright ? 4200 : 2800,
+    resonance:   0.96
+  }}).connect(room);
+  h.volume.value = bright ? -5 : -4;
+  h.triggerAttackRelease(note, '8n', time);
 }}
 
+// ── Main note router ─────────────────────────────────────────────────────
 function playNote(group, note, duration, time) {{
-  if (group === 4) {{
-    // PluckSynth: warm harp dampening, not sharp guitar twang
-    const pluck = new Tone.PluckSynth({{
-      attackNoise: 0.5, dampening: 3200, resonance: 0.95
-    }}).connect(room);
-    pluck.volume.value = -4;
-    pluck.triggerAttackRelease(note, duration, time);
-  }} else if (synths[group]) {{
-    synths[group].triggerAttackRelease(note, duration, time);
-  }}
+  if      (group === 1) vibraSynth.triggerAttackRelease(note, duration, time);
+  else if (group === 2 && pianoLoaded) pianoSampler.triggerAttackRelease(note, duration, time);
+  else if (group === 2) vibraSynth.triggerAttackRelease(note, duration, time);
+  else if (group === 3) pluckHarp(note, time, false);
+  else if (group === 4) pluckHarp(note, time, true);
+}}
+
+// ── Mutation: piano + Key Offset (mirrors original Max deviation indicator)
+function playMutationNote(note, time) {{
+  const shifted = semitoneShift(note, keyOffsetSemitones);
+  if (pianoLoaded) pianoSampler.triggerAttackRelease(shifted, '2n', time);
+  else             vibraSynth.triggerAttackRelease(shifted, '2n', time);
 }}
 
 function testBeep() {{
-  if (!synths[1]) return;
-  // Play a clean Mozart-like C major arpeggio, then a wrong piano note
-  // so the contrast is immediately, viscerally obvious.
+  if (!vibraSynth) return;
   const t = Tone.now();
-  playNote(1, 'C3', '4n', t);
-  playNote(2, 'E4', '4n', t + 0.22);
-  playNote(3, 'G3', '4n', t + 0.44);
-  playNote(2, 'C5', '4n', t + 0.66);
-  playNote(1, 'E3', '4n', t + 0.88);
-  // ← then the wrong note crashes in
-  playWrongNote('G4', t + 1.3);
+  playNote(1, 'C4', '4n', t);
+  playNote(2, 'E4', '4n', t + 0.3);
+  playNote(3, 'G3', '4n', t + 0.6);
+  playNote(4, 'C5', '4n', t + 0.9);
+  playMutationNote('E4', t + 1.5);
 }}
 
 function updateBpm(val) {{
@@ -575,7 +579,7 @@ function setupPart() {{
 
   part = new Tone.Part((time, val) => {{
     if (val.isMut && seqType === 'mut') {{
-      playWrongNote(val.note, time);   // piano key slipped one semitone, detuned
+      playMutationNote(val.note, time);
     }} else {{
       playNote(val.group, val.note, durations[val.group], time);
     }}
