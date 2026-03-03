@@ -632,17 +632,47 @@ div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input {
 .info-box .gr { color: #4ade80; font-weight: bold; }
 
 /* ── Expander polish ── */
-div[data-testid="stExpander"] {
+section[data-testid="stSidebar"] div[data-testid="stExpander"] {
     border: 1px solid #1e2d3d !important;
     border-radius: 8px !important;
     background: #0c1520 !important;
     margin-bottom: 8px !important;
 }
-div[data-testid="stExpander"] summary {
-    font-family: 'Space Mono', monospace !important;
-    font-size: 12px !important;
-    font-weight: 700 !important;
-    padding: 10px 14px !important;
+section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+    background-color: #0c1520 !important;
+    border-radius: 8px !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] summary:hover {
+    background-color: #1e2d3d !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+    background-color: #0c1520 !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] > details > div {
+    background-color: #0c1520 !important;
+}
+/* All buttons inside expanders */
+section[data-testid="stSidebar"] div[data-testid="stExpander"] button {
+    background-color: #1e3a5f !important;
+    color: white !important;
+    border: 1px solid #334155 !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] button:hover {
+    background-color: #2a4a6f !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] button * {
+    color: white !important;
+}
+/* All inputs inside expanders */
+section[data-testid="stSidebar"] div[data-testid="stExpander"] input {
+    background-color: #1e2d3d !important;
+    color: white !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] [data-baseweb="input"] {
+    background-color: #1e2d3d !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stExpander"] [data-baseweb="base-input"] {
+    background-color: #1e2d3d !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -795,6 +825,65 @@ with st.sidebar:
                 f'<br><span style="font-size:10px;">{len(seq)} aa · {label}</span></div>',
                 unsafe_allow_html=True,
             )
+            # Download button for every sequence
+            fasta_str = f">{name}\n{seq}\n"
+            st.download_button(
+                label=f"⬇ Download {name}",
+                data=fasta_str,
+                file_name=f"{name.replace(' ', '_')}.fasta",
+                mime="text/plain",
+                use_container_width=True,
+                key=f"dl_{name}",
+            )
+
+        # ── Upload additional sequence ────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("📂  Upload Additional Sequence"):
+            st.markdown(
+                '<div class="sidebar-section section-seqs">Add sequence to compare</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Upload a FASTA or paste a sequence to add as a variant alongside the current WT.")
+
+            add_tab1, add_tab2 = st.tabs(["Paste", "Upload"])
+
+            with add_tab1:
+                add_raw = st.text_area(
+                    "Sequence", height=80,
+                    placeholder=">Mutant-X\nMKTAYIAKQR...",
+                    label_visibility="collapsed",
+                    key="add_raw",
+                )
+                add_name_paste = st.text_input("Name", placeholder="Mutant-X", key="add_name_paste")
+                if st.button("➕ Add Sequence", use_container_width=True, key="btn_add_paste"):
+                    parsed = parse_fasta(add_raw) if add_raw.strip() else {}
+                    if not parsed:
+                        st.error("No valid sequence found.")
+                    else:
+                        for i, (n, s) in enumerate(parsed.items()):
+                            label = add_name_paste.strip() if (i == 0 and add_name_paste.strip()) else n
+                            st.session_state.sequences[label] = s
+                        st.success(f"Added {len(parsed)} sequence(s).")
+                        st.rerun()
+
+            with add_tab2:
+                add_file = st.file_uploader(
+                    "FASTA file", type=["fasta", "fa", "txt"],
+                    label_visibility="collapsed",
+                    key="add_file",
+                )
+                add_name_upload = st.text_input("Name (first seq)", placeholder="Mutant-X", key="add_name_upload")
+                if add_file and st.button("➕ Add from File", use_container_width=True, key="btn_add_upload"):
+                    text   = add_file.read().decode("utf-8", errors="ignore")
+                    parsed = parse_fasta(text)
+                    if not parsed:
+                        st.error("No valid sequences found.")
+                    else:
+                        for i, (n, s) in enumerate(parsed.items()):
+                            label = add_name_upload.strip() if (i == 0 and add_name_upload.strip()) else n
+                            st.session_state.sequences[label] = s
+                        st.success(f"Added {len(parsed)} sequence(s).")
+                        st.rerun()
 
 
 # ── Main: Step 1 — Load sequences ────────────────────────────────────────────
