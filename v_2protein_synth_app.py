@@ -22,30 +22,23 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Amino acid map — pentatonic scale, ordered by hydrophobicity ─────────────
-# All WT notes are in C major pentatonic (C D E G A) — impossible to sound bad.
-# Groups stay in their own register so you can hear the chemical texture.
-# Mutations get a tritone shift (+6 semitones) landing outside the pentatonic.
+# ── Amino acid map — 2 groups only: hydrophobic vs hydrophilic ──────────────
+# Group 1  Hydrophobic  → Vibraphone  (sky blue)
+# Group 2  Hydrophilic  → Piano       (green)
 #
-# Group 1  Hydrophobic   → Vibraphone  low register  (sky blue)
-# Group 2  Polar         → Piano       mid register  (green)
-# Group 3  Pos. charged  → Harp warm   low-mid       (amber)
-# Group 4  Neg. charged  → Harp bright high          (red)
-#
-# Ordered within each group by Kyte-Doolittle hydrophobicity score
+# Hydrophobic:  I V L F C M A W P        (Kyte-Doolittle positive scores)
+# Hydrophilic:  G T S Y H Q N K R D E   (Kyte-Doolittle negative/neutral)
+# All notes from C major pentatonic (C D E G A) — always sounds pleasant
 AMINO_MAP = {
-    # Hydrophobic (9 AAs) — vibraphone, octave 3, pentatonic C D E G A × 2
+    # Hydrophobic — vibraphone, octave 3
     'I': {'s': 1, 'n': 'C'}, 'V': {'s': 1, 'n': 'D'}, 'L': {'s': 1, 'n': 'E'},
     'F': {'s': 1, 'n': 'G'}, 'C': {'s': 1, 'n': 'A'}, 'M': {'s': 1, 'n': 'C'},
     'A': {'s': 1, 'n': 'D'}, 'W': {'s': 1, 'n': 'E'}, 'P': {'s': 1, 'n': 'G'},
-    # Polar uncharged (7 AAs) — piano, octave 4, pentatonic
+    # Hydrophilic — piano, octave 4
     'G': {'s': 2, 'n': 'A'}, 'T': {'s': 2, 'n': 'C'}, 'S': {'s': 2, 'n': 'D'},
     'Y': {'s': 2, 'n': 'E'}, 'H': {'s': 2, 'n': 'G'}, 'Q': {'s': 2, 'n': 'A'},
-    'N': {'s': 2, 'n': 'C'},
-    # Positively charged (2 AAs) — warm harp, octave 3
-    'K': {'s': 3, 'n': 'G'}, 'R': {'s': 3, 'n': 'E'},
-    # Negatively charged (2 AAs) — bright harp, octave 4
-    'D': {'s': 4, 'n': 'A'}, 'E': {'s': 4, 'n': 'E'},
+    'N': {'s': 2, 'n': 'C'}, 'K': {'s': 2, 'n': 'D'}, 'R': {'s': 2, 'n': 'E'},
+    'D': {'s': 2, 'n': 'G'}, 'E': {'s': 2, 'n': 'A'},
 }
 
 # ── Pure Python helpers ───────────────────────────────────────────────────────
@@ -279,11 +272,9 @@ def build_audio_component(sequences: dict, wt_name: str, bpm: int) -> str:
 <div class="grids-outer" id="grids-outer"></div>
 
 <div class="legend">
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s1)"></div>Hydrophobic — vibraphone</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Polar — piano</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s3)"></div>Pos. charged — harp (warm)</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--s4)"></div>Neg. charged — harp (bright)</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated vs WT — piano + key offset</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s1)"></div>Hydrophobic — vibraphone (low)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Hydrophilic — piano (mid)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated vs WT — dissonant piano (tritone shift)</div>
 </div>
 
 <script>
@@ -453,14 +444,10 @@ function testBeep() {{
 
 // ── Sequencer ─────────────────────────────────
 // All WT notes in pentatonic → pleasant, coherent melody
-// Octave registers keep groups sonically distinct:
-//   Group 1 (hydrophobic)  → octave 3  vibraphone, low & warm
-//   Group 2 (polar)        → octave 4  piano, main melody register
-//   Group 3 (pos charged)  → octave 3  harp warm, supportive low
-//   Group 4 (neg charged)  → octave 5  harp bright, high sparkle
-// Consistent quarter-note durations so the melody flows evenly
-const octaves   = {{1:3, 2:4, 3:3, 4:5}};
-const durations = {{1:'4n', 2:'4n', 3:'4n', 4:'8n'}};
+// Group 1 (hydrophobic)  → octave 3  vibraphone, low & warm
+// Group 2 (hydrophilic)  → octave 4  piano, brighter
+const octaves   = {{1:3, 2:4, 3:4, 4:4}};
+const durations = {{1:'4n', 2:'4n', 3:'4n', 4:'4n'}};
 
 function setupPart() {{
   Tone.Transport.cancel();
@@ -958,10 +945,10 @@ with st.expander("👋 How does this work? Click here to find out!", expanded=no
     <div class="icon">🎵</div>
     <div class="title">How do we turn it into music?</div>
     <div class="body">
-      Each amino acid letter gets sorted into one of <b>4 groups</b> based on its chemistry,
-      and each group gets its own instrument. Then the app reads the protein left to right,
-      playing one note per letter — like reading sheet music. The result is a unique
-      melody for every protein!
+      Each amino acid letter gets sorted into one of <b>2 groups</b> based on whether it
+      loves or hates water, and each group gets its own instrument. Then the app reads
+      the protein left to right, playing one note per letter — like reading sheet music.
+      The result is a unique melody for every protein!
     </div>
   </div>
 
@@ -983,11 +970,9 @@ with st.expander("👋 How does this work? Click here to find out!", expanded=no
 **🎨 What do the colors mean?**
 
 <div class="color-row">
-  <div class="color-chip"><div class="chip-dot" style="background:#38bdf8"></div>Sky blue = Hydrophobic (water-repelling) — plays <b>vibraphone</b></div>
-  <div class="color-chip"><div class="chip-dot" style="background:#4ade80"></div>Green = Polar uncharged — plays <b>piano</b></div>
-  <div class="color-chip"><div class="chip-dot" style="background:#fbbf24"></div>Amber = Positively charged — plays <b>warm harp</b></div>
-  <div class="color-chip"><div class="chip-dot" style="background:#f87171"></div>Red = Negatively charged — plays <b>bright harp</b></div>
-  <div class="mut-chip"><div class="chip-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Purple outline = Mutated letter — plays a <b>clashing piano note</b></div>
+  <div class="color-chip"><div class="chip-dot" style="background:#38bdf8"></div>Sky blue = Hydrophobic (water-hating) — plays <b>vibraphone</b>, low register</div>
+  <div class="color-chip"><div class="chip-dot" style="background:#4ade80"></div>Green = Hydrophilic (water-loving) — plays <b>piano</b>, mid register</div>
+  <div class="mut-chip"><div class="chip-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Purple outline = Mutated letter — plays a <b>clashing tritone note</b></div>
 </div>
 
 <br>
@@ -999,6 +984,26 @@ with st.expander("👋 How does this work? Click here to find out!", expanded=no
 | **1** | Paste or upload your protein sequence below | This is your "original" protein — called the Wild-Type |
 | **2** | Click **ENABLE AUDIO** in the player, then **PLAY** | The app will play a note for every amino acid, left to right |
 | **3** | Use the **Mutation Tools** panel on the left to swap letters | Any changed letters will play as clashing notes so you can hear the difference |
+
+---
+
+**✏️ How do I write a mutation?**
+
+A mutation is written as **3 parts joined together with no spaces:**
+
+| Part | Meaning | Example |
+|------|---------|---------|
+| **First letter** | The original amino acid at that position | `L` = Leucine |
+| **Number** | The position in the sequence (counting from 1) | `11` = position 11 |
+| **Last letter** | The new amino acid you want there | `K` = Lysine |
+
+So **`L11K`** means: *"Change position 11 from L to K"*
+
+To make multiple mutations at once, just separate them with commas:
+
+`L11K, V3A, G7R` — this changes positions 11, 3, and 7 all in one go.
+
+**Then give your new variant a name** (like "Mutant-1") and click Apply — it will appear in the player ready to compare against the Wild-Type!
 
 """, unsafe_allow_html=True)
 
@@ -1101,34 +1106,6 @@ if st.session_state.loaded and st.session_state.sequences:
         "The glowing square shows which amino acid is playing right now. "
         "Purple outlined squares are mutations — listen for the clashing notes!"
     )
-
-    st.markdown("---")
-    st.markdown("### Step 3 · Make Mutations")
-    st.caption(
-        "Use the **⚗️ Mutation Tools** panel on the **left sidebar** to swap amino acids and create new variants. "
-        "Every mutation you make is saved as a new sequence you can play and compare."
-    )
-
-    with st.expander("📖 How do I write a mutation?"):
-        st.markdown("""
-A mutation is written as **3 parts** with no spaces:
-
-| Part | Meaning | Example |
-|------|---------|---------|
-| **First letter** | The original amino acid at that position | `L` = Leucine |
-| **Number** | The position in the sequence (counting from 1) | `11` = position 11 |
-| **Last letter** | The new amino acid you want there | `K` = Lysine |
-
-So **`L11K`** means: *"Change position 11 from L to K"*
-
-To make multiple mutations at once, separate them with commas:
-```
-L11K, V3A, G7R
-```
-This changes position 11, position 3, and position 7 all in one go.
-
-**Then give your new variant a name** (like "Mutant-1") and click Apply — it will appear in the player ready to compare against the Wild-Type!
-        """)
 
 else:
     st.markdown("""
