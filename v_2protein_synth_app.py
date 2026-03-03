@@ -534,6 +534,57 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: white 
 section[data-testid="stSidebar"] small { color: white !important; }
 section[data-testid="stSidebar"] .stCaption p { color: white !important; }
 
+/* Fix buttons — dark bg, white text */
+section[data-testid="stSidebar"] button[kind="secondary"],
+section[data-testid="stSidebar"] button[kind="primary"],
+section[data-testid="stSidebar"] .stButton > button {
+    background-color: #1e3a5f !important;
+    color: white !important;
+    border: 1px solid #334155 !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: #2a4a6f !important;
+    color: white !important;
+}
+section[data-testid="stSidebar"] .stButton > button p {
+    color: white !important;
+}
+
+/* Fix number input spinner white box */
+section[data-testid="stSidebar"] [data-baseweb="input"] {
+    background-color: #1e2d3d !important;
+    border-color: #334155 !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="input"] input {
+    background-color: #1e2d3d !important;
+    color: white !important;
+}
+section[data-testid="stSidebar"] [data-testid="stNumberInputStepDown"],
+section[data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] {
+    background-color: #1e2d3d !important;
+    color: white !important;
+}
+section[data-testid="stSidebar"] [data-testid="stNumberInputStepDown"] svg,
+section[data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] svg {
+    fill: white !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="select"] > div { 
+    background-color: #1e2d3d !important; 
+    border-color: #334155 !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stSelectboxValue"],
+section[data-testid="stSidebar"] [data-baseweb="select"] span,
+section[data-testid="stSidebar"] [data-baseweb="select"] div { 
+    color: white !important; 
+}
+section[data-testid="stSidebar"] [role="listbox"] { 
+    background-color: #1e2d3d !important; 
+}
+section[data-testid="stSidebar"] [role="option"] { 
+    background-color: #1e2d3d !important; 
+    color: white !important; 
+}
+
 .block-container { padding-top: 2rem; max-width: 1200px; }
 div[data-testid="stTextArea"] textarea {
     font-family: 'Space Mono', monospace !important; font-size: 12px !important;
