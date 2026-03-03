@@ -513,11 +513,12 @@ for key, default in [
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Mono:wght@400;700&display=swap');
-html, body, [class*="css"] { font-family: 'Space Mono', monospace; color: white !important; }
-h1, h2, h3 { font-family: 'Syne', sans-serif !important; color: white !important; }
-p, label, span, div, caption { color: white !important; }
+html, body, [class*="css"] { font-family: 'Space Mono', monospace; }
+h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
 section[data-testid="stSidebar"] { background: #0f1923; border-right: 1px solid #1e2d3d; }
 section[data-testid="stSidebar"] * { color: white !important; }
+section[data-testid="stSidebar"] .hi { color: #a78bfa !important; }
+section[data-testid="stSidebar"] .gr { color: #4ade80 !important; }
 .block-container { padding-top: 2rem; max-width: 1200px; }
 div[data-testid="stTextArea"] textarea {
     font-family: 'Space Mono', monospace !important; font-size: 12px !important;
