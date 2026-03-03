@@ -524,6 +524,21 @@ div[data-testid="stTextArea"] textarea {
 div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input {
     font-family: 'Space Mono', monospace !important; background: #0f1923 !important; color: white !important;
 }
+
+/* ── Sidebar section headers ── */
+.sidebar-section {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 6px; margin-bottom: 4px;
+    font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase;
+}
+.section-batch   { background: #1e1040; color: #a78bfa; border-left: 3px solid #7c3aed; }
+.section-single  { background: #0a1f30; color: #38bdf8; border-left: 3px solid #0284c7; }
+.section-swap    { background: #0a2010; color: #4ade80; border-left: 3px solid #16a34a; }
+.section-remove  { background: #200a0a; color: #f87171; border-left: 3px solid #dc2626; }
+.section-seqs    { background: #101010; color: #94a3b8; border-left: 3px solid #475569; }
+
+/* ── Info boxes ── */
 .info-box {
     background: #0f1923; border: 1px solid #1e2d3d; border-radius: 8px;
     padding: 10px 14px; font-family: 'Space Mono', monospace;
@@ -531,6 +546,20 @@ div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input {
 }
 .info-box .hi { color: #a78bfa; font-weight: bold; }
 .info-box .gr { color: #4ade80; font-weight: bold; }
+
+/* ── Expander polish ── */
+div[data-testid="stExpander"] {
+    border: 1px solid #1e2d3d !important;
+    border-radius: 8px !important;
+    background: #0c1520 !important;
+    margin-bottom: 8px !important;
+}
+div[data-testid="stExpander"] summary {
+    font-family: 'Space Mono', monospace !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -550,109 +579,136 @@ with st.sidebar:
     st.markdown("### ⚗️ Mutation Tools")
 
     if not st.session_state.loaded:
-        st.info("Load a WT sequence first.")
+        st.info("Load a WT sequence first to use mutation tools.")
     else:
-        wt_seq = st.session_state.sequences[st.session_state.wt_name]
+        wt_seq        = st.session_state.sequences[st.session_state.wt_name]
         variant_names = list(st.session_state.sequences.keys())
 
-        # Which sequence to base the mutation on
-        st.markdown("---")
+        # ── Base sequence selector — always visible ───────────────────────────
+        st.markdown(
+            '<div class="sidebar-section section-seqs">🔬 Working Sequence</div>',
+            unsafe_allow_html=True,
+        )
         target_name = st.selectbox(
             "Base mutations on",
             options=variant_names,
             index=len(variant_names) - 1,
             key="mut_target",
+            label_visibility="collapsed",
+            help="Mutations will be applied starting from this sequence.",
         )
         base_seq = st.session_state.sequences[target_name]
+        st.caption(f"{len(base_seq)} aa · mutations saved as new variants, WT never modified")
+
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # ── Batch mutations ───────────────────────────────────────────────────
-        st.markdown("**Batch Mutations**")
-        st.caption("e.g. `L11K, V3A, G7R`")
-        batch_input    = st.text_input("Mutations", placeholder="L11K, V3A, G7R", key="batch_input")
-        new_var_name   = st.text_input("Save variant as", placeholder="Mutant-2", key="new_var_name")
+        with st.expander("🟣  Batch Mutations  —  e.g. L11K, V3A"):
+            st.markdown(
+                '<div class="sidebar-section section-batch">Apply multiple at once</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Standard notation: `OriginalAA · Position · NewAA`")
+            batch_input  = st.text_input("Mutations", placeholder="L11K, V3A, G7R", key="batch_input")
+            new_var_name = st.text_input("Save variant as", placeholder="Mutant-2", key="new_var_name")
 
-        if st.button("Apply Batch & Save", use_container_width=True):
-            if not new_var_name.strip():
-                st.error("Please name the new variant.")
-            elif not batch_input.strip():
-                st.error("Enter at least one mutation.")
-            else:
-                try:
-                    muts    = parse_batch_mutations(batch_input)
-                    new_seq = apply_batch_mutations(base_seq, muts)
-                    name    = new_var_name.strip()
-                    st.session_state.sequences[name] = new_seq
-                    n = count_mutations(wt_seq, new_seq)
-                    st.success(f"Saved '{name}' — {n} mutation(s) vs WT.")
-                    st.rerun()
-                except ValueError as e:
-                    st.error(str(e))
+            if st.button("✦ Apply Batch & Save", use_container_width=True, key="btn_batch"):
+                if not new_var_name.strip():
+                    st.error("Please name the new variant.")
+                elif not batch_input.strip():
+                    st.error("Enter at least one mutation.")
+                else:
+                    try:
+                        muts    = parse_batch_mutations(batch_input)
+                        new_seq = apply_batch_mutations(base_seq, muts)
+                        name    = new_var_name.strip()
+                        st.session_state.sequences[name] = new_seq
+                        n = count_mutations(wt_seq, new_seq)
+                        st.success(f"Saved '{name}' — {n} mutation(s) vs WT.")
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
 
         # ── Single residue ────────────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("**Single Residue**")
-        c1, c2 = st.columns(2)
-        with c1:
-            mut_pos = st.number_input("Pos #", min_value=1, max_value=max(len(base_seq), 1), value=1, step=1)
-        with c2:
-            mut_aa  = st.text_input("New AA", value="K", max_chars=1).upper().strip()
-        s_name = st.text_input("Save as", placeholder="Mutant-1", key="single_name")
+        with st.expander("🔵  Single Residue  —  one position"):
+            st.markdown(
+                '<div class="sidebar-section section-single">Swap one amino acid</div>',
+                unsafe_allow_html=True,
+            )
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                mut_pos = st.number_input(
+                    "Position #", min_value=1, max_value=max(len(base_seq), 1), value=1, step=1
+                )
+            with c2:
+                mut_aa = st.text_input("New AA", value="K", max_chars=1).upper().strip()
+            s_name = st.text_input("Save as", placeholder="Mutant-1", key="single_name")
 
-        if st.button("Apply Single & Save", use_container_width=True):
-            if not s_name.strip():
-                st.error("Please name the new variant.")
-            elif mut_aa not in AMINO_MAP:
-                st.error(f"'{mut_aa}' is not a valid amino acid.")
-            else:
-                new_seq = apply_single_mutation(base_seq, mut_pos, mut_aa)
-                st.session_state.sequences[s_name.strip()] = new_seq
-                st.success(f"Saved '{s_name.strip()}'.")
-                st.rerun()
+            if st.button("✦ Apply Single & Save", use_container_width=True, key="btn_single"):
+                if not s_name.strip():
+                    st.error("Please name the new variant.")
+                elif mut_aa not in AMINO_MAP:
+                    st.error(f"'{mut_aa}' is not a valid amino acid.")
+                else:
+                    new_seq = apply_single_mutation(base_seq, mut_pos, mut_aa)
+                    st.session_state.sequences[s_name.strip()] = new_seq
+                    st.success(f"Saved '{s_name.strip()}'.")
+                    st.rerun()
 
         # ── Global swap ───────────────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("**Global Swap**")
-        c3, c4 = st.columns(2)
-        with c3:
-            swap_from = st.text_input("Replace ALL", value="L", max_chars=1, key="sf").upper().strip()
-        with c4:
-            swap_to   = st.text_input("With", value="K", max_chars=1, key="sw").upper().strip()
-        gs_name = st.text_input("Save as", placeholder="SwapVariant", key="gs_name")
+        with st.expander("🟢  Global Swap  —  replace all of one AA"):
+            st.markdown(
+                '<div class="sidebar-section section-swap">Replace every occurrence</div>',
+                unsafe_allow_html=True,
+            )
+            c3, c4 = st.columns(2)
+            with c3:
+                swap_from = st.text_input("Replace ALL", value="L", max_chars=1, key="sf").upper().strip()
+            with c4:
+                swap_to = st.text_input("With", value="K", max_chars=1, key="sw").upper().strip()
+            gs_name = st.text_input("Save as", placeholder="SwapVariant", key="gs_name")
 
-        if st.button("Apply Swap & Save", use_container_width=True):
-            if not gs_name.strip():
-                st.error("Please name the new variant.")
-            elif swap_from not in AMINO_MAP or swap_to not in AMINO_MAP:
-                st.error("Both must be valid amino acid codes.")
-            else:
-                new_seq = apply_global_swap(base_seq, swap_from, swap_to)
-                st.session_state.sequences[gs_name.strip()] = new_seq
-                st.success(f"Saved '{gs_name.strip()}'.")
-                st.rerun()
+            if st.button("✦ Apply Swap & Save", use_container_width=True, key="btn_swap"):
+                if not gs_name.strip():
+                    st.error("Please name the new variant.")
+                elif swap_from not in AMINO_MAP or swap_to not in AMINO_MAP:
+                    st.error("Both must be valid amino acid codes.")
+                else:
+                    new_seq = apply_global_swap(base_seq, swap_from, swap_to)
+                    st.session_state.sequences[gs_name.strip()] = new_seq
+                    st.success(f"Saved '{gs_name.strip()}'.")
+                    st.rerun()
 
         # ── Remove variant ────────────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("**Remove Variant**")
-        non_wt = [n for n in st.session_state.sequences if n != st.session_state.wt_name]
-        if non_wt:
-            to_remove = st.selectbox("Variant to remove", non_wt, key="to_remove")
-            if st.button("🗑 Remove", use_container_width=True):
-                del st.session_state.sequences[to_remove]
-                st.rerun()
-        else:
-            st.caption("No variants loaded yet.")
+        with st.expander("🔴  Remove a Variant"):
+            st.markdown(
+                '<div class="sidebar-section section-remove">Delete a loaded variant</div>',
+                unsafe_allow_html=True,
+            )
+            non_wt = [n for n in st.session_state.sequences if n != st.session_state.wt_name]
+            if non_wt:
+                to_remove = st.selectbox("Variant to remove", non_wt, key="to_remove",
+                                         label_visibility="collapsed")
+                if st.button("🗑 Remove this variant", use_container_width=True, key="btn_remove"):
+                    del st.session_state.sequences[to_remove]
+                    st.rerun()
+            else:
+                st.caption("No variants loaded yet — WT cannot be removed.")
 
-        # ── Stats readout ─────────────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("**Loaded Sequences**")
+        # ── Loaded sequences summary ──────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sidebar-section section-seqs">📋 Loaded Sequences</div>',
+            unsafe_allow_html=True,
+        )
         for name, seq in st.session_state.sequences.items():
-            is_wt  = (name == st.session_state.wt_name)
-            n_mut  = 0 if is_wt else count_mutations(wt_seq, seq)
-            cls    = "gr" if is_wt else "hi"
-            label  = "Wild-Type" if is_wt else f"{n_mut} mut vs WT"
+            is_wt = (name == st.session_state.wt_name)
+            n_mut = 0 if is_wt else count_mutations(wt_seq, seq)
+            cls   = "gr" if is_wt else "hi"
+            label = "Wild-Type" if is_wt else f"{n_mut} mut vs WT"
             st.markdown(
                 f'<div class="info-box"><span class="{cls}">{name}</span>'
-                f' · {len(seq)} aa · {label}</div>',
+                f'<br><span style="font-size:10px;">{len(seq)} aa · {label}</span></div>',
                 unsafe_allow_html=True,
             )
 
