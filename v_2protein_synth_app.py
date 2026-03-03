@@ -519,6 +519,21 @@ section[data-testid="stSidebar"] { background: #0f1923; border-right: 1px solid 
 section[data-testid="stSidebar"] * { color: white !important; }
 section[data-testid="stSidebar"] .hi { color: #a78bfa !important; }
 section[data-testid="stSidebar"] .gr { color: #4ade80 !important; }
+
+/* Expander label, summary, and inner text */
+section[data-testid="stSidebar"] details summary p { color: white !important; }
+section[data-testid="stSidebar"] details summary span { color: white !important; }
+section[data-testid="stSidebar"] details > div * { color: white !important; }
+section[data-testid="stSidebar"] [data-testid="stExpanderToggleIcon"] { color: white !important; }
+
+/* Selectbox, text input, number input labels and values */
+section[data-testid="stSidebar"] label { color: white !important; }
+section[data-testid="stSidebar"] input { color: white !important; }
+section[data-testid="stSidebar"] [data-baseweb="select"] * { color: white !important; }
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: white !important; }
+section[data-testid="stSidebar"] small { color: white !important; }
+section[data-testid="stSidebar"] .stCaption p { color: white !important; }
+
 .block-container { padding-top: 2rem; max-width: 1200px; }
 div[data-testid="stTextArea"] textarea {
     font-family: 'Space Mono', monospace !important; font-size: 12px !important;
