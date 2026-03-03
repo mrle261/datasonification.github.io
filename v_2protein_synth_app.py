@@ -274,7 +274,7 @@ def build_audio_component(sequences: dict, wt_name: str, bpm: int) -> str:
 <div class="legend">
   <div class="legend-item"><div class="legend-dot" style="background:var(--s1)"></div>Hydrophobic — vibraphone (low)</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Hydrophilic — piano (mid)</div>
-  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated vs WT — dissonant piano (tritone shift)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Mutated vs WT — dissonant buzz cluster (3 clashing notes)</div>
 </div>
 
 <script>
@@ -378,7 +378,19 @@ async function initAudio() {{
   }}).connect(room);
   vibraSynth.volume.value = -6;
 
-  document.getElementById('status').textContent = '⏳ loading piano…';
+  // ── Mutation synth — harsh dissonance cluster ──────────────────────────────
+  // Completely different timbre from the WT instruments (sawtooth vs sine/piano)
+  // so it doesn't just sound like a wrong note — it sounds like an alarm.
+  // Signal chain: PolySynth → Distortion → Chorus → short Reverb → output
+  const mutDist  = new Tone.Distortion(0.7).connect(masterComp);
+  const mutChorus = new Tone.Chorus(4, 2.5, 0.5).connect(mutDist);
+  mutChorus.start();
+  const mutRoom  = new Tone.Reverb({{ decay:0.4, wet:0.15 }}).connect(mutChorus);
+  window.mutSynth = new Tone.PolySynth(Tone.Synth, {{
+    oscillator: {{ type: 'sawtooth' }},
+    envelope: {{ attack:0.001, decay:0.18, sustain:0.0, release:0.3 }}
+  }}).connect(mutRoom);
+  window.mutSynth.volume.value = 2;  // louder than everything else
   pianoSampler = new Tone.Sampler({{
     urls:{{
       A0:'A0.mp3',C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
@@ -422,24 +434,26 @@ function playNote(group, note, dur, time) {{
 }}
 
 function playMutNote(note, time) {{
-  // Tritone shift lands outside the pentatonic — maximally dissonant
-  // Played as a half note at +3dB so it rings out and is impossible to miss
-  const shifted = semitoneShift(note, keyOffsetSemitones);
-  const sampler = pianoLoaded ? pianoSampler : vibraSynth;
-  sampler.volume.value = -1;   // louder than normal piano (-4dB)
-  sampler.triggerAttackRelease(shifted, '2n', time);
-  // Reset volume after the note
-  setTimeout(() => {{ if (pianoLoaded) pianoSampler.volume.value = -4; }}, 600);
+  // 3-note dissonance cluster — maximally unpleasant combination:
+  //   Root + tritone (+6)       → "devil's interval"
+  //   Root + minor 2nd (+1)     → harshest short-range clash
+  //   Root + minor 7th (+10)    → unresolved tension
+  // Played on harsh sawtooth synth (alarm-like) vs gentle vibraphone/piano WT
+  const n1 = semitoneShift(note, 6);   // tritone
+  const n2 = semitoneShift(note, 1);   // minor 2nd
+  const n3 = semitoneShift(note, 10);  // minor 7th
+  window.mutSynth.triggerAttackRelease([n1, n2, n3], '8n', time);
 }}
 
 function testBeep() {{
   if (!vibraSynth) return;
   const t = Tone.now();
-  playNote(1,'C4','4n',t);
-  playNote(2,'E4','4n',t+0.3);
-  playNote(3,'G3','4n',t+0.6);
-  playNote(4,'C5','4n',t+0.9);
-  playMutNote('E4', t+1.5);
+  // Play a few pleasant WT notes, then the dissonance cluster crashes in
+  playNote(1,'C3','4n',t);
+  playNote(2,'E4','4n',t+0.25);
+  playNote(1,'G3','4n',t+0.5);
+  playNote(2,'A4','4n',t+0.75);
+  playMutNote('C4', t+1.1);  // cluster stab — should sound jarring
 }}
 
 // ── Sequencer ─────────────────────────────────
