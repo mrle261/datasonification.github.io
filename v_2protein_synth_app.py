@@ -534,23 +534,38 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: white 
 section[data-testid="stSidebar"] small { color: white !important; }
 section[data-testid="stSidebar"] .stCaption p { color: white !important; }
 
-/* Fix buttons — dark bg, white text */
+/* Fix buttons — dark bg, white text (including inside expanders) */
 section[data-testid="stSidebar"] button[kind="secondary"],
 section[data-testid="stSidebar"] button[kind="primary"],
-section[data-testid="stSidebar"] .stButton > button {
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] details .stButton > button,
+section[data-testid="stSidebar"] details div .stButton > button,
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {
     background-color: #1e3a5f !important;
     color: white !important;
     border: 1px solid #334155 !important;
 }
-section[data-testid="stSidebar"] .stButton > button:hover {
+section[data-testid="stSidebar"] .stButton > button:hover,
+section[data-testid="stSidebar"] details .stButton > button:hover,
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {
     background-color: #2a4a6f !important;
     color: white !important;
 }
-section[data-testid="stSidebar"] .stButton > button p {
+section[data-testid="stSidebar"] .stButton > button p,
+section[data-testid="stSidebar"] details .stButton > button p,
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p {
     color: white !important;
 }
 
-/* Fix number input spinner white box */
+/* Make placeholder text visible */
+section[data-testid="stSidebar"] input::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1 !important;
+}
+section[data-testid="stSidebar"] textarea::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1 !important;
+}
 section[data-testid="stSidebar"] [data-baseweb="input"] {
     background-color: #1e2d3d !important;
     border-color: #334155 !important;
