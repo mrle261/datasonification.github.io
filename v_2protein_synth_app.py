@@ -380,17 +380,6 @@ async function initAudio() {{
 
   // ── Mutation synth — harsh dissonance cluster ──────────────────────────────
   // Completely different timbre from the WT instruments (sawtooth vs sine/piano)
-  // so it doesn't just sound like a wrong note — it sounds like an alarm.
-  // Signal chain: PolySynth → Distortion → Chorus → short Reverb → output
-  const mutDist  = new Tone.Distortion(0.7).connect(masterComp);
-  const mutChorus = new Tone.Chorus(4, 2.5, 0.5).connect(mutDist);
-  mutChorus.start();
-  const mutRoom  = new Tone.Reverb({{ decay:0.4, wet:0.15 }}).connect(mutChorus);
-  window.mutSynth = new Tone.PolySynth(Tone.Synth, {{
-    oscillator: {{ type: 'sawtooth' }},
-    envelope: {{ attack:0.001, decay:0.18, sustain:0.0, release:0.3 }}
-  }}).connect(mutRoom);
-  window.mutSynth.volume.value = 2;  // louder than everything else
   pianoSampler = new Tone.Sampler({{
     urls:{{
       A0:'A0.mp3',C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
@@ -434,15 +423,23 @@ function playNote(group, note, dur, time) {{
 }}
 
 function playMutNote(note, time) {{
-  // 3-note dissonance cluster — maximally unpleasant combination:
-  //   Root + tritone (+6)       → "devil's interval"
-  //   Root + minor 2nd (+1)     → harshest short-range clash
-  //   Root + minor 7th (+10)    → unresolved tension
-  // Played on harsh sawtooth synth (alarm-like) vs gentle vibraphone/piano WT
-  const n1 = semitoneShift(note, 6);   // tritone
-  const n2 = semitoneShift(note, 1);   // minor 2nd
-  const n3 = semitoneShift(note, 10);  // minor 7th
-  window.mutSynth.triggerAttackRelease([n1, n2, n3], '8n', time);
+  // Piano 3-note cluster — same warm timbre as WT but deeply dissonant:
+  //   Root + minor 2nd (+1)  → harshest close-range clash
+  //   Root + tritone (+6)    → devil's interval
+  //   Root + minor 7th (+10) → unresolved tension
+  // All three together on real piano samples = unmistakably wrong, still musical
+  if (!pianoLoaded) {{
+    vibraSynth.triggerAttackRelease([note, semitoneShift(note,6)], '4n', time);
+    return;
+  }}
+  const n1 = semitoneShift(note, 1);
+  const n2 = semitoneShift(note, 6);
+  const n3 = semitoneShift(note, 10);
+  pianoSampler.volume.value = 0;  // slightly louder than normal WT piano (-4dB)
+  pianoSampler.triggerAttackRelease(n1, '4n', time);
+  pianoSampler.triggerAttackRelease(n2, '4n', time);
+  pianoSampler.triggerAttackRelease(n3, '4n', time);
+  setTimeout(() => {{ pianoSampler.volume.value = -4; }}, 400);
 }}
 
 function testBeep() {{
