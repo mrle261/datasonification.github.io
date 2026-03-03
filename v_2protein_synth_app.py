@@ -185,10 +185,16 @@ def build_audio_component(sequences: dict, wt_name: str, bpm: int) -> str:
   }}
   #status {{ color:var(--s2); font-size:11px; font-weight:700; margin-left:auto; }}
 
-  .grids-outer {{ display:flex; flex-direction:column; gap:12px; }}
+  /* Grids wrapper — side by side, wraps if more than 2 sequences */
+  .grids-outer {{
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }}
   .seq-panel {{
-    background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px;
+    background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px;
     transition: border-color .2s, box-shadow .2s;
+    min-width: 0; /* prevent overflow in grid */
   }}
   .seq-panel.is-playing {{ border-color:#3b82f6; box-shadow:0 0 0 1px #3b82f688; }}
   .panel-title {{
@@ -205,9 +211,9 @@ def build_audio_component(sequences: dict, wt_name: str, bpm: int) -> str:
 
   .grid {{ display:flex; flex-wrap:wrap; gap:4px; }}
   .tile {{
-    width:30px; height:30px; border-radius:4px;
+    width:24px; height:24px; border-radius:3px;
     display:flex; align-items:center; justify-content:center;
-    font-weight:800; font-size:10px; color:#0f172a;
+    font-weight:800; font-size:9px; color:#0f172a;
     transition:transform .1s,box-shadow .1s; position:relative; cursor:default;
   }}
   .s1 {{ background:var(--s1); }} .s2 {{ background:var(--s2); }}
@@ -886,24 +892,115 @@ with st.sidebar:
                         st.rerun()
 
 
-# ── Main: Step 1 — Load sequences ────────────────────────────────────────────
-st.markdown("### 1 · Load Wild-Type Sequence")
+# ── How It Works — friendly explainer ───────────────────────────────────────
+with st.expander("👋 How does this work? Click here to find out!", expanded=not st.session_state.loaded):
+    st.markdown("""
+<style>
+.how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+.how-card {
+    background: #0f1923; border: 1px solid #1e2d3d; border-radius: 10px;
+    padding: 16px; font-family: 'Space Mono', monospace;
+}
+.how-card .icon { font-size: 2rem; margin-bottom: 8px; }
+.how-card .title { font-size: 12px; font-weight: 700; color: white; margin-bottom: 6px; }
+.how-card .body  { font-size: 11px; color: #94a3b8; line-height: 1.6; }
+.how-card .body b { color: white; }
 
-paste_tab, upload_tab = st.tabs(["📋 Paste sequence", "📁 Upload FASTA"])
+.color-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.color-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: #0f1923; border: 1px solid #1e2d3d;
+    border-radius: 6px; padding: 6px 10px;
+    font-family: 'Space Mono', monospace; font-size: 11px; color: white;
+}
+.chip-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.mut-chip { display:flex; align-items:center; gap:6px; background:#1e0a3c;
+    border:1px solid #7c3aed44; border-radius:6px; padding:6px 10px;
+    font-family:'Space Mono',monospace; font-size:11px; color:#c4b5fd; }
+</style>
+
+<div class="how-grid">
+
+  <div class="how-card">
+    <div class="icon">🧬</div>
+    <div class="title">What is a protein?</div>
+    <div class="body">
+      A protein is like a very long word made up of just <b>20 letters</b> called amino acids.
+      Each letter is a different chemical building block. The order of those letters determines
+      what the protein does in your body — like carrying oxygen, fighting germs, or digesting food.
+    </div>
+  </div>
+
+  <div class="how-card">
+    <div class="icon">🎵</div>
+    <div class="title">How do we turn it into music?</div>
+    <div class="body">
+      Each amino acid letter gets sorted into one of <b>4 groups</b> based on its chemistry,
+      and each group gets its own instrument. Then the app reads the protein left to right,
+      playing one note per letter — like reading sheet music. The result is a unique
+      melody for every protein!
+    </div>
+  </div>
+
+  <div class="how-card">
+    <div class="icon">⚗️</div>
+    <div class="title">What is a mutation?</div>
+    <div class="body">
+      A mutation is when one letter in the protein sequence gets swapped for a different one.
+      Sometimes mutations are harmless, sometimes they change how the protein works.
+      In this app, <b>mutated letters play a clashing note</b> so you can hear exactly
+      where the protein changed — like a wrong note in a song.
+    </div>
+  </div>
+
+</div>
+
+<br>
+
+**🎨 What do the colors mean?**
+
+<div class="color-row">
+  <div class="color-chip"><div class="chip-dot" style="background:#38bdf8"></div>Sky blue = Hydrophobic (water-repelling) — plays <b>vibraphone</b></div>
+  <div class="color-chip"><div class="chip-dot" style="background:#4ade80"></div>Green = Polar uncharged — plays <b>piano</b></div>
+  <div class="color-chip"><div class="chip-dot" style="background:#fbbf24"></div>Amber = Positively charged — plays <b>warm harp</b></div>
+  <div class="color-chip"><div class="chip-dot" style="background:#f87171"></div>Red = Negatively charged — plays <b>bright harp</b></div>
+  <div class="mut-chip"><div class="chip-dot" style="background:transparent;border:2px solid #a78bfa;"></div>Purple outline = Mutated letter — plays a <b>clashing piano note</b></div>
+</div>
+
+<br>
+
+**🚀 How to get started — 3 simple steps:**
+
+| Step | What to do | Why |
+|------|-----------|-----|
+| **1** | Paste or upload your protein sequence below | This is your "original" protein — called the Wild-Type |
+| **2** | Click **ENABLE AUDIO** in the player, then **PLAY** | The app will play a note for every amino acid, left to right |
+| **3** | Use the **Mutation Tools** panel on the left to swap letters | Any changed letters will play as clashing notes so you can hear the difference |
+
+""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── Main: Step 1 — Load sequences ────────────────────────────────────────────
+st.markdown("### Step 1 · Load Your Protein Sequence")
+st.caption("This is your starting protein — called the **Wild-Type (WT)**. Paste the letters directly or upload a FASTA file.")
+
+paste_tab, upload_tab = st.tabs(["📋 Paste sequence", "📁 Upload FASTA file"])
 
 with paste_tab:
+    st.caption("Paste your protein as single letters (e.g. MKTAYIAKQR...) or in FASTA format with a > header line.")
     raw_input = st.text_area(
         "WT sequence",
         height=90,
         placeholder=">MyProtein\nMKTAYIAKQRQISFVKSHFSRQTEAERNKHHSSLLTAYGNSQ...",
         label_visibility="collapsed",
     )
-    wt_label = st.text_input("Name this sequence", value="Wild-Type", key="wt_label_paste")
+    wt_label = st.text_input("Give this sequence a name", value="Wild-Type", key="wt_label_paste")
 
     if st.button("🔬 Load as Wild-Type", type="primary", use_container_width=True, key="load_paste"):
         parsed = parse_fasta(raw_input) if raw_input.strip() else {}
         if not parsed:
-            st.error("No valid sequence found.")
+            st.error("No valid sequence found. Make sure you've pasted amino acid letters (A–Z).")
         else:
             name_list = list(parsed.keys())
             wt_seq_name = wt_label.strip() or name_list[0]
@@ -913,16 +1010,17 @@ with paste_tab:
             st.session_state.sequences = new_seqs
             st.session_state.wt_name   = wt_seq_name
             st.session_state.loaded    = True
-            st.success(f"Loaded WT '{wt_seq_name}' — {len(list(parsed.values())[0])} residues.")
+            st.success(f"✅ Loaded '{wt_seq_name}' — {len(list(parsed.values())[0])} amino acids. Scroll down to play!")
             st.rerun()
 
 with upload_tab:
     st.caption(
-        "Upload a FASTA file. Multiple sequences are supported — "
-        "the first becomes WT, the rest become variants automatically."
+        "A FASTA file is a standard biology file format. "
+        "If your file has multiple sequences, the first one becomes the Wild-Type "
+        "and the rest are loaded as variants to compare."
     )
     uploaded    = st.file_uploader("FASTA file", type=["fasta","fa","txt"], label_visibility="collapsed")
-    wt_label_up = st.text_input("Name for first sequence (WT)", value="Wild-Type", key="wt_label_upload")
+    wt_label_up = st.text_input("Name for the first sequence", value="Wild-Type", key="wt_label_upload")
 
     if uploaded and st.button("🔬 Load FASTA", type="primary", use_container_width=True, key="load_upload"):
         text   = uploaded.read().decode("utf-8", errors="ignore")
@@ -938,19 +1036,23 @@ with upload_tab:
             st.session_state.sequences = new_seqs
             st.session_state.wt_name   = wt_seq_name
             st.session_state.loaded    = True
-            st.success(f"Loaded {len(parsed)} sequence(s). WT = '{wt_seq_name}'.")
+            st.success(f"✅ Loaded {len(parsed)} sequence(s). Wild-Type = '{wt_seq_name}'. Scroll down to play!")
             st.rerun()
 
 st.markdown("---")
 
 # ── Main: Step 2 — Visualise & Play ──────────────────────────────────────────
 if st.session_state.loaded and st.session_state.sequences:
-    st.markdown("### 2 · Visualize & Play")
+    st.markdown("### Step 2 · Listen & Compare")
+    st.caption(
+        "Each colored square is one amino acid. The app reads them left to right and plays a note for each one. "
+        "Switch between sequences using the **SEQUENCE** dropdown inside the player."
+    )
 
     col_l, col_r = st.columns([1, 4])
     with col_l:
         st.markdown(
-            "<div style='padding-top:8px;font-size:12px;color:#64748b;'>Tempo (BPM)</div>",
+            "<div style='padding-top:8px;font-size:12px;color:#94a3b8;'>⏱ Speed (BPM)</div>",
             unsafe_allow_html=True,
         )
     with col_r:
@@ -964,23 +1066,59 @@ if st.session_state.loaded and st.session_state.sequences:
 
     longest  = max(len(s) for s in st.session_state.sequences.values())
     n_seqs   = len(st.session_state.sequences)
-    tile_rows = (longest // 22) + 1
-    height   = min(220 + n_seqs * (tile_rows * 38 + 90), 1600)
+    tile_rows  = (longest // 28) + 1
+    n_rows     = (n_seqs + 1) // 2
+    height     = min(220 + n_rows * (tile_rows * 30 + 100), 1600)
 
     st.components.v1.html(component_html, height=height, scrolling=True)
-    st.caption(
-        "💡 Click **ENABLE AUDIO** first — piano samples take ~5 sec to load. "
-        "Use the **SEQUENCE** dropdown to switch what plays. "
-        "Purple outlines = mutated vs WT. Adjust **KEY OFFSET** to control how dissonant mutations sound."
+
+    st.info(
+        "💡 **Quick start:** Click **ENABLE AUDIO** → wait ~5 seconds for piano to load → "
+        "pick a sequence from the dropdown → click **PLAY**. "
+        "The glowing square shows which amino acid is playing right now. "
+        "Purple outlined squares are mutations — listen for the clashing notes!"
     )
+
+    st.markdown("---")
+    st.markdown("### Step 3 · Make Mutations")
+    st.caption(
+        "Use the **⚗️ Mutation Tools** panel on the **left sidebar** to swap amino acids and create new variants. "
+        "Every mutation you make is saved as a new sequence you can play and compare."
+    )
+
+    with st.expander("📖 How do I write a mutation?"):
+        st.markdown("""
+A mutation is written as **3 parts** with no spaces:
+
+| Part | Meaning | Example |
+|------|---------|---------|
+| **First letter** | The original amino acid at that position | `L` = Leucine |
+| **Number** | The position in the sequence (counting from 1) | `11` = position 11 |
+| **Last letter** | The new amino acid you want there | `K` = Lysine |
+
+So **`L11K`** means: *"Change position 11 from L to K"*
+
+To make multiple mutations at once, separate them with commas:
+```
+L11K, V3A, G7R
+```
+This changes position 11, position 3, and position 7 all in one go.
+
+**Then give your new variant a name** (like "Mutant-1") and click Apply — it will appear in the player ready to compare against the Wild-Type!
+        """)
 
 else:
     st.markdown("""
     <div style="text-align:center;padding:60px 20px;border:2px dashed #1e2d3d;
                 border-radius:12px;margin-top:20px;">
         <div style="font-size:3rem;">🧬</div>
-        <div style="font-family:'Space Mono',monospace;font-size:13px;margin-top:10px;color:#334155;">
-            Paste or upload a sequence above to begin.
+        <div style="font-family:'Space Mono',monospace;font-size:14px;margin-top:12px;color:#94a3b8;">
+            Paste or upload a protein sequence above to get started!
+        </div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;margin-top:8px;color:#475569;">
+            Not sure where to get a sequence? Try searching for any protein on
+            <a href="https://www.uniprot.org" target="_blank" style="color:#38bdf8;">UniProt.org</a>
+            and copying the sequence from there.
         </div>
     </div>
     """, unsafe_allow_html=True)
