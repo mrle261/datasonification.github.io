@@ -22,20 +22,30 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Amino acid map — hydrophobicity-based ────────────────────────────────────
-# Group 1  Hydrophobic   → Vibraphone  (sky blue)
-# Group 2  Polar         → Piano       (green)
-# Group 3  Pos. charged  → Harp warm   (amber)
-# Group 4  Neg. charged  → Harp bright (red)
+# ── Amino acid map — pentatonic scale, ordered by hydrophobicity ─────────────
+# All WT notes are in C major pentatonic (C D E G A) — impossible to sound bad.
+# Groups stay in their own register so you can hear the chemical texture.
+# Mutations get a tritone shift (+6 semitones) landing outside the pentatonic.
+#
+# Group 1  Hydrophobic   → Vibraphone  low register  (sky blue)
+# Group 2  Polar         → Piano       mid register  (green)
+# Group 3  Pos. charged  → Harp warm   low-mid       (amber)
+# Group 4  Neg. charged  → Harp bright high          (red)
+#
+# Ordered within each group by Kyte-Doolittle hydrophobicity score
 AMINO_MAP = {
-    'A': {'s': 1, 'n': 'C'}, 'V': {'s': 1, 'n': 'D'}, 'I': {'s': 1, 'n': 'E'},
-    'L': {'s': 1, 'n': 'F'}, 'M': {'s': 1, 'n': 'G'}, 'F': {'s': 1, 'n': 'A'},
-    'W': {'s': 1, 'n': 'B'}, 'P': {'s': 1, 'n': 'C'}, 'C': {'s': 1, 'n': 'D'},
-    'G': {'s': 2, 'n': 'E'}, 'S': {'s': 2, 'n': 'F'}, 'T': {'s': 2, 'n': 'G'},
-    'Y': {'s': 2, 'n': 'A'}, 'H': {'s': 2, 'n': 'B'}, 'Q': {'s': 2, 'n': 'C'},
-    'N': {'s': 2, 'n': 'D'},
-    'K': {'s': 3, 'n': 'E'}, 'R': {'s': 3, 'n': 'G'},
-    'D': {'s': 4, 'n': 'F'}, 'E': {'s': 4, 'n': 'A'},
+    # Hydrophobic (9 AAs) — vibraphone, octave 3, pentatonic C D E G A × 2
+    'I': {'s': 1, 'n': 'C'}, 'V': {'s': 1, 'n': 'D'}, 'L': {'s': 1, 'n': 'E'},
+    'F': {'s': 1, 'n': 'G'}, 'C': {'s': 1, 'n': 'A'}, 'M': {'s': 1, 'n': 'C'},
+    'A': {'s': 1, 'n': 'D'}, 'W': {'s': 1, 'n': 'E'}, 'P': {'s': 1, 'n': 'G'},
+    # Polar uncharged (7 AAs) — piano, octave 4, pentatonic
+    'G': {'s': 2, 'n': 'A'}, 'T': {'s': 2, 'n': 'C'}, 'S': {'s': 2, 'n': 'D'},
+    'Y': {'s': 2, 'n': 'E'}, 'H': {'s': 2, 'n': 'G'}, 'Q': {'s': 2, 'n': 'A'},
+    'N': {'s': 2, 'n': 'C'},
+    # Positively charged (2 AAs) — warm harp, octave 3
+    'K': {'s': 3, 'n': 'G'}, 'R': {'s': 3, 'n': 'E'},
+    # Negatively charged (2 AAs) — bright harp, octave 4
+    'D': {'s': 4, 'n': 'A'}, 'E': {'s': 4, 'n': 'E'},
 }
 
 # ── Pure Python helpers ───────────────────────────────────────────────────────
@@ -252,9 +262,9 @@ def build_audio_component(sequences: dict, wt_name: str, bpm: int) -> str:
   <span class="val" id="bpmVal">{bpm}</span>
 
   <label style="color:#a78bfa;">KEY OFFSET</label>
-  <input type="range" id="keyOffset" min="-12" max="12" value="5"
+  <input type="range" id="keyOffset" min="-12" max="12" value="6"
     oninput="updateKeyOffset(this.value)" disabled style="accent-color:#a78bfa;width:80px;">
-  <span class="val" id="keyOffsetVal" style="color:#a78bfa;">+5</span>
+  <span class="val" id="keyOffsetVal" style="color:#a78bfa;">+6</span>
 
   <label>SEQUENCE</label>
   <select id="seqSelect" onchange="onSeqChange()" disabled>
@@ -340,7 +350,7 @@ function renderAllGrids() {{
 // ── Audio engine ──────────────────────────────
 let vibraSynth, pianoSampler, pianoLoaded = false;
 let masterComp, room, part, playing = false;
-let keyOffsetSemitones = 5;
+let keyOffsetSemitones = 6;  // tritone — most dissonant interval, always lands outside pentatonic
 
 function semitoneShift(note, n) {{
   const ns = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -421,8 +431,14 @@ function playNote(group, note, dur, time) {{
 }}
 
 function playMutNote(note, time) {{
+  // Tritone shift lands outside the pentatonic — maximally dissonant
+  // Played as a half note at +3dB so it rings out and is impossible to miss
   const shifted = semitoneShift(note, keyOffsetSemitones);
-  (pianoLoaded?pianoSampler:vibraSynth).triggerAttackRelease(shifted, '2n', time);
+  const sampler = pianoLoaded ? pianoSampler : vibraSynth;
+  sampler.volume.value = -1;   // louder than normal piano (-4dB)
+  sampler.triggerAttackRelease(shifted, '2n', time);
+  // Reset volume after the note
+  setTimeout(() => {{ if (pianoLoaded) pianoSampler.volume.value = -4; }}, 600);
 }}
 
 function testBeep() {{
@@ -436,8 +452,15 @@ function testBeep() {{
 }}
 
 // ── Sequencer ─────────────────────────────────
-const octaves   = {{1:3, 2:4, 3:4, 4:5}};
-const durations = {{1:'4n', 2:'4n', 3:'8n', 4:'16n'}};
+// All WT notes in pentatonic → pleasant, coherent melody
+// Octave registers keep groups sonically distinct:
+//   Group 1 (hydrophobic)  → octave 3  vibraphone, low & warm
+//   Group 2 (polar)        → octave 4  piano, main melody register
+//   Group 3 (pos charged)  → octave 3  harp warm, supportive low
+//   Group 4 (neg charged)  → octave 5  harp bright, high sparkle
+// Consistent quarter-note durations so the melody flows evenly
+const octaves   = {{1:3, 2:4, 3:3, 4:5}};
+const durations = {{1:'4n', 2:'4n', 3:'4n', 4:'8n'}};
 
 function setupPart() {{
   Tone.Transport.cancel();
