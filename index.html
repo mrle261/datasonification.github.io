@@ -56,10 +56,15 @@
   .brand h1 { margin:0; font-family:'Syne', sans-serif; font-weight:800; font-size:clamp(19px, 5vw, 24px); letter-spacing:.01em; }
   .brand p { margin:0; font-family:'Space Mono', monospace; font-size:11px; color:var(--dim); }
   .tabs { margin-left:auto; display:flex; gap:2px; background:var(--sunk); border:1px solid var(--line); border-radius:999px; padding:3px; }
-  .tabs button { border:0; background:none; padding:7px 16px; border-radius:999px; cursor:pointer; font-weight:600; color:var(--dim); }
+  .tabs button { border:0; background:none; padding:7px 14px; border-radius:999px; cursor:pointer; font-weight:600; color:var(--dim); }
   .tabs button[aria-selected="true"] { background:var(--card); color:var(--ink); box-shadow:var(--shadow); }
 
   .layout { display:grid; grid-template-columns:minmax(0, 1fr) 330px; gap:20px; align-items:start; }
+  .layout.single { grid-template-columns:minmax(0, 1fr); }
+  .layout.single .side { display:none; }
+  .feedback { max-width:780px; width:100%; margin:0 auto; }
+  .feedback iframe { display:block; width:100%; height:1100px; border:0; border-radius:10px; background:#fff; margin-top:6px; }
+  @media (max-width: 480px) { .tabs button { padding:7px 10px; font-size:13px; } }
   @media (max-width: 940px) { .layout { grid-template-columns:minmax(0, 1fr); } }
   .stage, .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
 
@@ -244,6 +249,7 @@
     <nav class="tabs" role="tablist" aria-label="Mode">
       <button role="tab" data-mode="demo">Sickle cell demo</button>
       <button role="tab" data-mode="try">Try it yourself</button>
+      <button role="tab" data-mode="feedback">Feedback</button>
     </nav>
   </header>
 
@@ -676,8 +682,10 @@ document.addEventListener('scroll', () => { tip.hidden = true; }, true);
 
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === state.mode));
-  const w = ws();
   const stage = $('stage');
+  document.querySelector('.layout').classList.toggle('single', state.mode === 'feedback');
+  if (state.mode === 'feedback') { stage.innerHTML = feedbackHtml(); $('side').innerHTML = ''; return; }
+  const w = ws();
   if (!w.seqs.length) { stage.innerHTML = loaderHtml(); renderSide(); return; }
   stage.innerHTML = (state.mode === 'demo' ? storyHtml() : w.seqs.length === 1 ? nextStepHtml() : '') +
     '<section class="card transport" id="transport"></section><div id="panels" class="stage"></div>';
@@ -990,6 +998,20 @@ function legendHtml() {
   </section>`;
 }
 
+const FEEDBACK_FORM = 'https://docs.google.com/forms/d/e/1FAIpQLSdRri-0ssIrCOE3pxLC5ylKJnaE-w-ITVI4U5XvtTACnFHvhg/viewform';
+
+function feedbackHtml() {
+  return `
+  <section class="card feedback">
+    <div class="eyebrow">Feedback</div>
+    <h2>Tell us what you think</h2>
+    <p class="dim">Your answers help the Bradley Lab improve Data Sonification: what was clear, what was confusing,
+       and what you could (or couldn’t) hear.</p>
+    <iframe src="${FEEDBACK_FORM}?embedded=true" title="Feedback form" loading="lazy"></iframe>
+    <p class="note">Form not loading? <a href="${FEEDBACK_FORM}" target="_blank" rel="noopener">Open it in a new tab ↗</a></p>
+  </section>`;
+}
+
 // ── Actions ──────────────────────────────────────────────────────────────────
 function setMode(mode) {
   if (mode === state.mode) return;
@@ -1172,7 +1194,7 @@ document.addEventListener('change', e => {
 
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || e.target.closest('input, textarea, select, button, dialog')) return;
-  if (!ws().seqs.length) return;
+  if (!ws() || !ws().seqs.length) return;
   e.preventDefault();
   togglePlay();
 });
