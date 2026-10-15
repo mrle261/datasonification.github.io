@@ -169,6 +169,35 @@
   .nextstep ol { margin:0; padding-left:20px; }
   .nextstep li { margin-bottom:4px; }
 
+  /* ── Make a mutation ── */
+  .mstep { margin-top:14px; }
+  .mstep p { margin:6px 0 0; }
+  .mstep-title { display:flex; align-items:center; gap:8px; font-weight:700; font-size:13px; margin-bottom:6px; }
+  .mstep-title .n { width:20px; height:20px; border-radius:50%; background:var(--accent); color:var(--accent-ink);
+                    font-size:11px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .mutate > .btn.primary { margin-top:16px; }
+  .anatomy { display:flex; gap:4px; margin:2px 0 4px; }
+  .anatomy span { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--sunk);
+                  border:1px solid var(--line); border-radius:8px; padding:6px 4px; }
+  .anatomy b { font:700 18px 'Space Mono', monospace; }
+  .anatomy small { font-size:10px; color:var(--dim); text-align:center; line-height:1.2; }
+  .forms { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .form-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; }
+  .form-row .chip { padding:3px 10px; flex:none; }
+  .swap-row { display:flex; align-items:center; gap:6px; }
+  .swap-row select { flex:1 1 0; min-width:0; padding:8px 6px; }
+  .mutate > .note { margin-top:12px; }
+  .aa-list { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; font-size:12px; }
+  .aa-row { display:flex; align-items:center; gap:6px; }
+  .aa-row .t { width:20px; height:20px; font-size:10px; cursor:default; }
+  .aa-row .t:hover { transform:none; }
+
+  /* ── Sequence tooltip ── */
+  .tip { position:fixed; z-index:60; pointer-events:none; max-width:260px; padding:7px 10px; border-radius:8px;
+         background:var(--ink); color:var(--bg); font-size:12px; line-height:1.45; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  .tip-mut { color:var(--np); }
+  @media (prefers-color-scheme: dark) { .tip-mut { color:#a16207; } }
+
   /* ── Legend ── */
   .lg { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
   .lg:last-child { margin-bottom:0; }
@@ -561,7 +590,7 @@ async function play(opts = {}) {
 
   const name = ws().seqs[ws().selected].name;
   player.label = opts.only !== null && opts.only !== undefined ? `${name} · around #${opts.only + 1}`
-               : plan.compare ? `${name} vs WT` : name;
+               : plan.compare ? `${name} vs wild type` : name;
   player.playing = true; player.paused = false;
   renderTransport();
 }
@@ -612,8 +641,38 @@ const $ = id => document.getElementById(id);
 function tileHtml(aa, i, extra = '') {
   const info = AA[aa];
   const c = info.charge > 0 ? ' data-c="+"' : info.charge < 0 ? ' data-c="−"' : '';
-  return `<span class="t ${info.cls}${extra}" data-i="${i}"${c} title="#${i + 1} ${info.name} (${aa}) · ${CLASS_LABEL[info.cls]}${extra.includes('mut') ? ' · mutated' : ''}">${aa}</span>`;
+  return `<span class="t ${info.cls}${extra}" data-i="${i}"${c}>${aa}</span>`;
 }
+
+// ── Hover tooltip for sequence squares (one shared element; instant, unlike title="") ──
+const tip = document.createElement('div');
+tip.className = 'tip';
+tip.hidden = true;
+document.body.appendChild(tip);
+
+function showTip(tile) {
+  const w = ws(), k = +tile.closest('.panel').dataset.k, i = +tile.dataset.i;
+  const aa = w.seqs[k].seq[i], wt = w.seqs[0].seq[i], info = AA[aa];
+  const charge = info.charge > 0 ? ', positive charge' : info.charge < 0 ? ', negative charge' : '';
+  let html = `<b>Position ${i + 1}</b><br>${info.name} (${aa}) · ${CLASS_LABEL[info.cls]}${charge}`;
+  if (k !== 0 && wt !== aa) {
+    const s = severity(wt, aa);
+    html += `<br><span class="tip-mut">Mutated: the wild type has ${wt ? `${AA[wt].name} (${wt})` : 'nothing'} here · ${SEV_LABEL[s.level].toLowerCase()} change</span>`;
+  }
+  tip.innerHTML = html;
+  tip.hidden = false;
+  const r = tile.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - tw - 8, r.left + r.width / 2 - tw / 2));
+  const top = r.top - th - 8 >= 0 ? r.top - th - 8 : r.bottom + 8;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+document.addEventListener('mouseover', e => {
+  const tile = e.target.closest('.panel .t');
+  if (tile) showTip(tile); else tip.hidden = true;
+});
+document.addEventListener('scroll', () => { tip.hidden = true; }, true);
 
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === state.mode));
@@ -691,26 +750,47 @@ function loaderHtml() {
           <button class="btn primary" data-act="load">Load</button>
         </div>
         <p class="err" id="loadErr"></p>
-        <p class="note">This becomes your <b>wild-type (WT)</b>, the original that your mutations are compared against.
-           If a file holds several sequences, the first is the WT and the rest are added for comparison.</p>
+        <p class="note">This becomes your <b>wild type</b>, the original that your mutations are compared against.
+           If a file holds several sequences, the first is the wild type and the rest are added for comparison.</p>
       </li>
     </ol>
     <p class="note">Just want to look around? <button class="linkish" data-act="example">Load human β-globin instead</button>.</p>
   </section>`;
 }
 
+// A valid mutation for `seq` at `pos`, swapping in an amino acid from a different color group
+function exampleMutation(seq, pos) {
+  const from = seq[pos - 1], cls = AA[from].cls;
+  const to = cls === 'np' ? 'K' : cls === 'pol' ? 'V' : 'L';
+  return { text: `${from}${pos}${to}`, from, pos, to };
+}
+
+// Click-to-fill examples of each way to write a change, built from the chosen sequence
+function mutationExamplesHtml(seq) {
+  const a = exampleMutation(seq, Math.min(6, seq.length));
+  const b = exampleMutation(seq, Math.min(17, seq.length));
+  const fill = text => `<button class="chip mono" data-act="fillmut" data-v="${text}">${text}</button>`;
+  return `
+    <div class="forms">
+      <div class="small dim">Ways to write it (click to try):</div>
+      <div class="form-row"><span>One change</span>${fill(a.text)}</div>
+      ${b.pos !== a.pos ? `<div class="form-row"><span>Several at once, separated by commas</span>${fill(`${a.text}, ${b.text}`)}</div>` : ''}
+      <div class="form-row"><span>Lowercase works too</span>${fill(a.text.toLowerCase())}</div>
+    </div>`;
+}
+
 // Shown once a WT is loaded but there is nothing to compare it with yet
 function nextStepHtml() {
-  const seq = ws().seqs[0].seq, pos = Math.min(10, seq.length);
-  const from = seq[pos - 1], to = from === 'P' ? 'G' : 'P';
+  const seq = ws().seqs[0].seq;
+  const { text, pos, from, to } = exampleMutation(seq, Math.min(6, seq.length));
   return `
   <section class="card nextstep">
     <div class="eyebrow">Next steps</div>
     <ol>
       <li>Press <b>Play</b> to hear your protein. Each square is one amino acid, played left to right.</li>
       <li>Make a mutated version in the <b>Make a mutation</b> box. For example, type
-          <span class="mono">${from}${pos}${to}</span> to change position ${pos} from ${AA[from].name} to ${AA[to].name}.</li>
-      <li>Press <b>Play</b> again with <b>Compare with WT</b> on to hear exactly what changed.</li>
+          <span class="mono">${text}</span> to change position ${pos} from ${AA[from].name} to ${AA[to].name}.</li>
+      <li>Press <b>Play</b> again with <b>Compare with wild type</b> on to hear exactly what changed.</li>
     </ol>
   </section>`;
 }
@@ -728,11 +808,11 @@ function renderTransport() {
     <button class="btn" data-act="stop" title="Stop">■</button>
     <div class="seg" role="group" aria-label="Listen">
       <button data-set="compare" data-v="0" aria-pressed="${!compare}">This sequence</button>
-      <button data-set="compare" data-v="1" aria-pressed="${compare}" ${canCompare ? '' : 'disabled title="Select a variant to compare it with the WT"'}>🎧 Compare with WT</button>
+      <button data-set="compare" data-v="1" aria-pressed="${compare}" ${canCompare ? '' : 'disabled title="Select a variant to compare it with the wild type"'}>🎧 Compare with wild type</button>
     </div>
     <div class="seg" role="group" aria-label="Range">
       <button data-set="focus" data-v="0" aria-pressed="${!focus}">Whole protein</button>
-      <button data-set="focus" data-v="1" aria-pressed="${focus}" ${canFocus ? '' : 'disabled title="This sequence has no mutations vs the WT"'}>Mutations only</button>
+      <button data-set="focus" data-v="1" aria-pressed="${focus}" ${canFocus ? '' : 'disabled title="This sequence has no mutations compared with the wild type"'}>Mutations only</button>
     </div>
     ${focus ? `<label class="ctl">±<input type="number" id="radius" min="1" max="40" value="${state.radius}">residues</label>` : ''}
     <label class="ctl">Tempo<input type="range" id="bpm" min="60" max="400" step="10" value="${state.bpm}"><output id="bpmOut">${state.bpm}</output></label>
@@ -775,7 +855,7 @@ function renderPanels() {
       return `<button class="chip" data-act="hear" data-k="${k}" data-i="${i}" title="Play the region around this mutation">
         <span class="sev ${s.level}"></span><b>${mutLabel(wt, seq, i)}</b>${SEV_LABEL[s.level]}${s.score === null ? '' : ` <span class="dim">(${s.score})</span>`} ▶</button>`;
     }).join('') + (diffs.length > shown.length ? `<span class="dim small">+ ${diffs.length - shown.length} more</span>` : '');
-    const badge = isWT ? `<span class="badge wt">WT · ${seq.length} aa</span>`
+    const badge = isWT ? `<span class="badge wt">Wild type · ${seq.length} amino acids</span>`
                        : `<span class="badge mutn">${diffs.length} mutation${diffs.length === 1 ? '' : 's'}</span>`;
     const tools = state.mode === 'try' ? `
         <button class="btn ghost" data-act="download" data-k="${k}" title="Download FASTA">⬇</button>
@@ -792,34 +872,67 @@ function renderPanels() {
     </article>`;
   }).join('');
   player.lit = [];
+  tip.hidden = true;
 }
 
 function renderSide() {
   const w = ws();
   let html = '';
   if (state.mode === 'try' && w.seqs.length) {
-    const opts = w.seqs.map((s, k) => `<option value="${k}"${k === w.selected ? ' selected' : ''}>${esc(s.name)}${k === 0 ? ' (WT)' : ''}</option>`).join('');
-    const aaOpts = BY_PITCH.slice().sort().map(a => `<option value="${a}">${a} · ${AA[a].name}</option>`).join('');
+    const opts = w.seqs.map((s, k) => `<option value="${k}"${k === w.selected ? ' selected' : ''}>${esc(s.name)}${k === 0 ? ' (wild type)' : ''}</option>`).join('');
+    const aaOpts = pick => BY_PITCH.slice().sort().map(a => `<option value="${a}"${a === pick ? ' selected' : ''}>${a} · ${AA[a].name}</option>`).join('');
+    const letters = BY_PITCH.slice().sort().map(a =>
+      `<span class="aa-row"><span class="t ${AA[a].cls}">${a}</span>${AA[a].name}</span>`).join('');
     html += `
-    <section class="card">
+    <section class="card mutate">
       <h3>Make a mutation</h3>
-      <label class="field"><span>Start from</span><select id="mutBase">${opts}</select></label>
-      <label class="field"><span>Mutation(s)</span><input type="text" id="mutText" class="mono" placeholder="E6V   or   L11K, V3A" autocomplete="off"></label>
-      <label class="field"><span>Name (optional)</span><input type="text" id="mutName" placeholder="Defaults to the mutation"></label>
-      <button class="btn primary wide" data-act="mutate">Create variant</button>
-      <p class="err" id="mutErr"></p>
-      <p class="note">Write the original letter, its position, then the new letter. <span class="mono">E6V</span> means
-         “position 6 changes from E to V”.</p>
-      <details style="margin-top:12px">
-        <summary>Replace every amino acid of one kind</summary>
-        <div class="row">
-          <select id="swapFrom" class="grow">${aaOpts}</select>
-          <span class="dim">→</span>
-          <select id="swapTo" class="grow">${aaOpts}</select>
+      <p class="small dim">A mutation swaps one amino acid for another. Your change is saved as a new sequence, so the
+         original is never altered.</p>
+
+      <div class="mstep">
+        <div class="mstep-title"><span class="n">1</span>Choose the sequence to change</div>
+        <select id="mutBase">${opts}</select>
+        <p class="small dim">Start from the wild type, or from a version you already made to stack more changes on top.</p>
+      </div>
+
+      <div class="mstep">
+        <div class="mstep-title"><span class="n">2</span>Type the change</div>
+        <div class="anatomy" aria-hidden="true">
+          <span><b>E</b><small>letter there now</small></span>
+          <span><b>6</b><small>position</small></span>
+          <span><b>V</b><small>new letter</small></span>
         </div>
-        <button class="btn wide" data-act="swap" style="margin-top:8px">Create variant</button>
+        <p class="small dim"><span class="mono">E6V</span> means “position 6 is E (glutamic acid); change it to V (valine)”.
+           Hover over any square to see its position and letter.</p>
+        <input type="text" id="mutText" class="mono" placeholder="e.g. E6V" autocomplete="off" aria-label="Mutation">
+        <div id="mutExamples">${mutationExamplesHtml(w.seqs[w.selected].seq)}</div>
+      </div>
+
+      <div class="mstep">
+        <div class="mstep-title"><span class="n">3</span>Name it <span class="dim small">(optional)</span></div>
+        <input type="text" id="mutName" placeholder="Leave blank to name it after the change" aria-label="Name">
+      </div>
+
+      <button class="btn primary wide" data-act="mutate">Create mutated version</button>
+      <p class="err" id="mutErr"></p>
+
+      <details style="margin-top:14px">
+        <summary>Replace every amino acid of one kind</summary>
+        <p class="small dim">Changes every copy of one amino acid at once, for example every leucine (L) into lysine (K).</p>
+        <div class="swap-row">
+          <select id="swapFrom" aria-label="Replace every">${aaOpts('L')}</select>
+          <span class="dim">→</span>
+          <select id="swapTo" aria-label="With">${aaOpts('K')}</select>
+        </div>
+        <button class="btn wide" data-act="swap" style="margin-top:8px">Create mutated version</button>
         <p class="err" id="swapErr"></p>
       </details>
+      <details style="margin-top:10px">
+        <summary>Amino acid letter codes</summary>
+        <div class="aa-list">${letters}</div>
+      </details>
+      <p class="note">Already have a mutated sequence from somewhere else? Paste it under
+         <b>Add another sequence to compare</b> below.</p>
     </section>
     <section class="card">
       <h3>Sequences</h3>
@@ -986,6 +1099,11 @@ document.addEventListener('click', e => {
     case 'example':
       loadRecords([{ name:'Human β-globin', seq:HBB }], [], '', 'loadErr');
       break;
+    case 'fillmut':
+      $('mutText').value = el.dataset.v;
+      $('mutErr').textContent = '';
+      $('mutText').focus();
+      break;
     case 'mutate': {
       const base = w.seqs[+$('mutBase').value];
       const text = $('mutText').value.trim();
@@ -1037,6 +1155,7 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
+  if (e.target.id === 'mutBase') $('mutExamples').innerHTML = mutationExamplesHtml(ws().seqs[+e.target.value].seq);
   if (e.target.id === 'radius') {
     state.radius = Math.max(1, Math.min(40, +e.target.value || 1));
     replayIfPlaying();
