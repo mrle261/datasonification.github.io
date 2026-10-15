@@ -82,6 +82,7 @@
   .btn:hover { border-color:var(--faint); }
   .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
   .btn.primary:hover { filter:brightness(1.08); }
+  .btn.toggle[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); background:var(--sunk); }
   .btn.ghost { background:none; border-color:transparent; color:var(--dim); padding:6px 8px; }
   .btn.ghost:hover { color:var(--ink); background:var(--sunk); }
   .btn:disabled { opacity:.45; cursor:not-allowed; }
@@ -216,9 +217,9 @@
   .scale-ends { display:flex; justify-content:space-between; font-size:11px; color:var(--faint); }
   .ring { width:18px; height:18px; border-radius:4px; background:var(--mid); box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--mut); margin:0 3px; flex:none; }
 
-  footer { margin-top:16px; padding-top:10px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center;
-           gap:6px 16px; font-size:11px; color:var(--dim); }
-  footer .credits { display:flex; flex-wrap:wrap; gap:2px 14px; }
+  footer { margin-top:16px; padding-top:10px; border-top:1px solid var(--line); display:flex; flex-direction:column; align-items:center;
+           gap:6px; font-size:11px; color:var(--dim); text-align:center; }
+  footer .credits { display:flex; flex-wrap:wrap; justify-content:center; gap:2px 14px; }
   footer .copy { font-weight:700; color:var(--ink); }
   .uk { display:block; line-height:0; }
   .uk-logo { height:28px; width:auto; fill:var(--ink); }   /* wordmark has no fill of its own */
@@ -450,8 +451,8 @@ const HBS = applyMutations(HBB, [{ pos:6, to:'V' }]);
 
 const WS = {
   demo: { seqs: [ { name:'Normal β-globin (HbA)', seq:HBB }, { name:'Sickle cell β-globin (HbS)', seq:HBS } ],
-          selected:1, compare:true, focus:true },
-  try:  { seqs: [], selected:0, compare:true, focus:false },
+          selected:1, compare:true, focus:true, all:false },
+  try:  { seqs: [], selected:0, compare:true, focus:false, all:false },
 };
 const state = { mode:'demo', bpm:160, radius:6 };
 const ws = () => WS[state.mode];
@@ -478,7 +479,7 @@ const Sound = {
 
     // One voice bank per stereo position: centre, left (WT), right (variant)
     this.banks = {};
-    for (const [key, pan] of [['c', 0], ['l', -0.8], ['r', 0.8]]) {
+    for (const [key, pan] of [['c', 0], ['l', -0.8], ['r', 0.8], ['l2', -0.4], ['r2', 0.4]]) {
       const out = new Tone.Panner(pan).connect(room);
       const muffle = new Tone.Filter(1500, 'lowpass').connect(out);
       const bank = {
@@ -528,26 +529,54 @@ const Sound = {
     inst.triggerAttackRelease(info.note, '8n', time, velocity);
   },
 
-  mutation(bankKey, from, to, time) {
-    this.residue(bankKey, to, time, 0.9);
+  mutation(bankKey, from, to, time, gain = 1) {
+    this.residue(bankKey, to, time, 0.9 * gain);
     const bank = this.banks[bankKey], keys = bank.piano || bank.keys, note = AA[to].note;
     const { level } = severity(from, to);
-    if (level === 'mild') bank.sour.triggerAttackRelease(note, '8n', time, 0.6);
-    else if (level === 'moderate') keys.triggerAttackRelease(shift(note, 1), '8n', time, 0.6);
-    else keys.triggerAttackRelease([shift(note, 1), shift(note, 6), shift(note, 10)], '4n', time, 0.75);
+    if (level === 'mild') bank.sour.triggerAttackRelease(note, '8n', time, 0.6 * gain);
+    else if (level === 'moderate') keys.triggerAttackRelease(shift(note, 1), '8n', time, 0.6 * gain);
+    else keys.triggerAttackRelease([shift(note, 1), shift(note, 6), shift(note, 10)], '4n', time, 0.75 * gain);
   },
 };
 
 // ── Player ───────────────────────────────────────────────────────────────────
 const player = { part:null, playing:false, paused:false, lit:[], label:'' };
 
-// A plan is the list of residues to play, one per 8th-note step.
+// Stereo positions for variants when every sequence plays at once (the wild type stays centred)
+const ALL_PANS = ['r', 'l', 'r2', 'l2'];
+
+// The voices to sound at position i. mode: 'single' | 'compare' | 'all'.
+// Identical residues are played once, so agreeing sequences don't just get louder.
+function voicesAt(i, w, mode) {
+  const a = w.seqs[0].seq[i];
+  if (mode === 'all') {
+    const voices = a ? [{ bank:'c', aa:a }] : [];
+    const seen = new Set();
+    w.seqs.forEach((s, k) => {
+      const b = s.seq[i];
+      if (k === 0 || !b || b === a || seen.has(b)) return;
+      seen.add(b);
+      voices.push({ bank: ALL_PANS[(k - 1) % ALL_PANS.length], from:a, aa:b, mut:true });
+    });
+    const muts = voices.filter(v => v.mut);
+    muts.forEach(v => { v.gain = 1 / Math.sqrt(muts.length); });   // several clashes at once share the volume
+    return voices;
+  }
+  const k = w.selected, b = w.seqs[k].seq[i];
+  if (k === 0 || a === b) return b ? [{ bank:'c', aa:b }] : [];
+  if (mode === 'compare') {
+    return [...(a ? [{ bank:'l', aa:a, vel:0.7 }] : []), ...(b ? [{ bank:'r', from:a, aa:b, mut:true }] : [])];
+  }
+  return b ? [{ bank:'c', from:a, aa:b, mut:true }] : [];
+}
+
+// A plan is the list of positions to play, one per 8th-note step.
 function buildPlan({ from = 0, only = null } = {}) {
-  const w = ws(), k = w.selected;
-  const wt = w.seqs[0].seq, seq = w.seqs[k].seq;
-  const compare = w.compare && k !== 0;
-  const len = compare ? Math.max(wt.length, seq.length) : seq.length;
-  const diffs = k === 0 ? [] : diffPositions(wt, seq);
+  const w = ws(), k = w.selected, wt = w.seqs[0].seq;
+  const mode = w.all && w.seqs.length > 1 && only === null ? 'all' : w.compare && k !== 0 ? 'compare' : 'single';
+  const ks = mode === 'all' ? w.seqs.map((_, j) => j) : mode === 'compare' ? [0, k] : [k];
+  const len = Math.max(...ks.map(j => w.seqs[j].seq.length));
+  const diffs = [...new Set(ks.filter(j => j !== 0).flatMap(j => diffPositions(wt, w.seqs[j].seq)))];
   const win = i => [Math.max(0, i - state.radius), Math.min(len - 1, i + state.radius)];
 
   let ranges, loop = true, startStep = 0;
@@ -559,19 +588,15 @@ function buildPlan({ from = 0, only = null } = {}) {
   let step = 0;
   ranges.forEach((r, n) => {
     if (n) step += GAP_STEPS;
-    for (let i = r[0]; i <= r[1]; i++) events.push({ step: step++, i, k, compare, wt: wt[i], aa: seq[i] });
+    for (let i = r[0]; i <= r[1]; i++) events.push({ step: step++, i, ks, voices: voicesAt(i, w, mode) });
   });
-  return { events, steps: step, loop, startStep, compare };
+  return { events, steps: step, loop, startStep, mode };
 }
 
 function playStep(ev, time) {
-  const { wt, aa, compare } = ev;
-  if (ev.k === 0 || wt === aa) { if (aa) Sound.residue('c', aa, time); return; }
-  if (compare) {
-    if (wt) Sound.residue('l', wt, time, 0.7);
-    if (aa) Sound.mutation('r', wt, aa, time);
-  } else if (aa) {
-    Sound.mutation('c', wt, aa, time);
+  for (const v of ev.voices) {
+    if (v.mut) Sound.mutation(v.bank, v.from, v.aa, time, v.gain);
+    else Sound.residue(v.bank, v.aa, time, v.vel);
   }
 }
 
@@ -594,9 +619,10 @@ async function play(opts = {}) {
   else { T.loop = false; T.scheduleOnce(t => Tone.Draw.schedule(stop, t), `${(plan.steps + 2) * tps}i`); }
   T.start('+0.05', `${plan.startStep * tps}i`);
 
-  const name = ws().seqs[ws().selected].name;
+  const w = ws(), name = w.seqs[w.selected].name;
   player.label = opts.only !== null && opts.only !== undefined ? `${name} · around #${opts.only + 1}`
-               : plan.compare ? `${name} vs wild type` : name;
+               : plan.mode === 'all' ? `all ${w.seqs.length} sequences`
+               : plan.mode === 'compare' ? `${name} vs wild type` : name;
   player.playing = true; player.paused = false;
   renderTransport();
 }
@@ -630,8 +656,7 @@ function unlight() { player.lit.forEach(t => t.classList.remove('on')); player.l
 
 function light(ev) {
   unlight();
-  const ks = ev.compare ? [0, ev.k] : [ev.k];
-  for (const k of ks) {
+  for (const k of ev.ks) {
     const tile = document.querySelector(`.panel[data-k="${k}"] .t[data-i="${ev.i}"]`);
     if (!tile) continue;
     tile.classList.add('on');
@@ -806,22 +831,26 @@ function nextStepHtml() {
 function renderTransport() {
   const el = $('transport');
   if (!el) return;
-  const w = ws(), k = w.selected;
-  const nDiff = k === 0 ? 0 : diffPositions(w.seqs[0].seq, w.seqs[k].seq).length;
-  const canCompare = k !== 0, canFocus = nDiff > 0;
+  const w = ws(), k = w.selected, wt = w.seqs[0].seq;
+  const canAll = w.seqs.length > 1, all = w.all && canAll;
+  const nDiff = all ? w.seqs.slice(1).reduce((n, s) => n + diffPositions(wt, s.seq).length, 0)
+              : k === 0 ? 0 : diffPositions(wt, w.seqs[k].seq).length;
+  const canCompare = k !== 0 && !all, canFocus = nDiff > 0;
   const compare = w.compare && canCompare, focus = w.focus && canFocus;
+  const compareTip = all ? 'Turn off Play all sequences to compare one sequence' : 'Select a variant to compare it with the wild type';
   const playLabel = player.playing && !player.paused ? '⏸ Pause' : player.paused ? '▶ Resume' : '▶ Play';
   el.innerHTML = `
     <button class="btn primary play" data-act="play">${playLabel}</button>
     <button class="btn" data-act="stop" title="Stop">■</button>
     <div class="seg" role="group" aria-label="Listen">
-      <button data-set="compare" data-v="0" aria-pressed="${!compare}">This sequence</button>
-      <button data-set="compare" data-v="1" aria-pressed="${compare}" ${canCompare ? '' : 'disabled title="Select a variant to compare it with the wild type"'}>🎧 Compare with wild type</button>
+      <button data-set="compare" data-v="0" aria-pressed="${!compare && !all}" ${all ? 'disabled' : ''}>This sequence</button>
+      <button data-set="compare" data-v="1" aria-pressed="${compare}" ${canCompare ? '' : `disabled title="${compareTip}"`}>🎧 Compare with wild type</button>
     </div>
     <div class="seg" role="group" aria-label="Range">
       <button data-set="focus" data-v="0" aria-pressed="${!focus}">Whole protein</button>
       <button data-set="focus" data-v="1" aria-pressed="${focus}" ${canFocus ? '' : 'disabled title="This sequence has no mutations compared with the wild type"'}>Mutations only</button>
     </div>
+    <button class="btn toggle" data-act="playall" aria-pressed="${all}" ${canAll ? 'title="Play the wild type and every mutated version together"' : 'disabled title="Make or add at least one mutated version first"'}>${all ? '✓ ' : ''}Play all sequences</button>
     ${focus ? `<label class="ctl">±<input type="number" id="radius" min="1" max="40" value="${state.radius}">residues</label>` : ''}
     <label class="ctl">Tempo<input type="range" id="bpm" min="60" max="400" step="10" value="${state.bpm}"><output id="bpmOut">${state.bpm}</output></label>
     <span class="status" id="status"></span>`;
@@ -841,7 +870,7 @@ function renderPanels() {
   const el = $('panels');
   if (!el) return;
   const w = ws(), wt = w.seqs[0].seq;
-  const sel = w.selected, compare = w.compare && sel !== 0;
+  const sel = w.selected, compare = w.compare && sel !== 0, allOn = w.all && w.seqs.length > 1;
   const selDiff = new Set(sel === 0 ? [] : diffPositions(wt, w.seqs[sel].seq));
 
   el.innerHTML = w.seqs.map(({ name, seq }, k) => {
@@ -869,7 +898,7 @@ function renderPanels() {
         <button class="btn ghost" data-act="download" data-k="${k}" title="Download FASTA">⬇</button>
         ${isWT ? '' : `<button class="btn ghost" data-act="remove" data-k="${k}" title="Remove variant">✕</button>`}` : '';
     return `
-    <article class="card panel${k === sel ? ' sel' : ''}" data-k="${k}">
+    <article class="card panel${k === sel || allOn ? ' sel' : ''}" data-k="${k}">
       <header class="ph">
         <button class="pick" data-act="select" data-k="${k}" title="Play this sequence">
           <span class="dot"></span><span class="pname">${esc(name)}</span>${badge}
@@ -1087,7 +1116,7 @@ document.addEventListener('click', e => {
   if (tile) {
     const k = +tile.closest('.panel').dataset.k, i = +tile.dataset.i;
     const w = ws();
-    w.selected = k; w.focus = false;
+    w.selected = k; w.focus = false; w.all = false;
     renderTransport(); renderPanels();
     play({ from: i });
     return;
@@ -1099,12 +1128,17 @@ document.addEventListener('click', e => {
   switch (el.dataset.act) {
     case 'play': togglePlay(); break;
     case 'stop': stop(); break;
+    case 'playall':
+      w.all = !w.all;
+      renderTransport(); renderPanels();
+      if (w.all) play(); else replayIfPlaying();
+      break;
     case 'select':
-      w.selected = k;
+      w.selected = k; w.all = false;
       renderTransport(); renderPanels(); replayIfPlaying();
       break;
     case 'hear':
-      w.selected = k;
+      w.selected = k; w.all = false;
       renderTransport(); renderPanels();
       play({ only: +el.dataset.i });
       break;
