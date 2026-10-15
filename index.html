@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Sonification · Bradley Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<!--
+  Data Sonification — Bradley Lab
+  Turns amino-acid sequences into music so mutations can be heard.
+
+  Sonification model
+    Pitch       hydropathy rank (Kyte-Doolittle) on C-major pentatonic, C3–A6.
+                Every amino acid has its own pitch; water-hating = low, water-loving = high.
+    Color       Nonpolar (yellow) / In between (grey) / Polar (red), same hydropathy scale.
+    Instrument  charge: piano = uncharged, bell = positive (K R H), soft tone = negative (D E).
+    Mutations   dissonance scaled by BLOSUM62 substitution score:
+                  >= 1   conservative  note + slightly out-of-tune double
+                  0, -1  moderate      note + half-step rub
+                  <= -2  radical       note + clashing cluster (m2, tritone, m7)
+    Compare     WT in the left ear, variant in the right; identical residues play once, centred.
+    Focus       "Mutations only" plays a window of ± N residues around each mutation.
+
+  Runs as a static page (GitHub Pages) or inside Streamlit via v_2protein_synth_app.py.
+-->
+<style>
+  :root {
+    --bg:#f6f5f1; --card:#ffffff; --sunk:#efede7; --line:#e3e0d8; --ink:#1c1917; --dim:#625d55; --faint:#9a958b;
+    --accent:#1d4ed8; --accent-ink:#ffffff; --mut:#1d4ed8;
+    --np:#facc15; --np-ink:#3b2f00; --mid:#bdb9b1; --mid-ink:#24211d; --pol:#dc2626; --pol-ink:#ffffff;
+    --sev-mild:#0f766e; --sev-moderate:#c2410c; --sev-radical:#a21caf;
+    --shadow:0 1px 2px rgba(28,25,23,.05), 0 6px 20px rgba(28,25,23,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0e1014; --card:#161920; --sunk:#1e222a; --line:#2b303a; --ink:#ecebe8; --dim:#a29e96; --faint:#6f6b64;
+      --accent:#60a5fa; --accent-ink:#0b1220; --mut:#60a5fa;
+      --mid:#8d8982; --mid-ink:#111111; --pol:#ef4444;
+      --sev-mild:#2dd4bf; --sev-moderate:#fb923c; --sev-radical:#e879f9;
+      --shadow:0 1px 2px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { background:var(--bg); color:var(--ink); font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  a { color:var(--accent); }
+  .mono { font-family:'Space Mono', ui-monospace, monospace; }
+
+  .app { max-width:1240px; margin:0 auto; padding:0 20px 24px; }
+
+  /* ── Header ── */
+  .top { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:18px 0 16px; }
+  .brand h1 { margin:0; font-family:'Syne', sans-serif; font-weight:800; font-size:clamp(19px, 5vw, 24px); letter-spacing:.01em; }
+  .brand p { margin:0; font-family:'Space Mono', monospace; font-size:11px; color:var(--dim); }
+  .tabs { margin-left:auto; display:flex; gap:2px; background:var(--sunk); border:1px solid var(--line); border-radius:999px; padding:3px; }
+  .tabs button { border:0; background:none; padding:7px 16px; border-radius:999px; cursor:pointer; font-weight:600; color:var(--dim); }
+  .tabs button[aria-selected="true"] { background:var(--card); color:var(--ink); box-shadow:var(--shadow); }
+
+  .layout { display:grid; grid-template-columns:minmax(0, 1fr) 330px; gap:20px; align-items:start; }
+  @media (max-width: 940px) { .layout { grid-template-columns:minmax(0, 1fr); } }
+  .stage, .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; box-shadow:var(--shadow); }
+  .card h2 { margin:0 0 6px; font-family:'Syne', sans-serif; font-size:19px; font-weight:800; }
+  .card h3 { margin:0 0 10px; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); }
+  .card p { margin:0 0 10px; }
+  .eyebrow { font-family:'Space Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); margin-bottom:4px; }
+  .dim { color:var(--dim); }
+  .small { font-size:12px; }
+
+  /* ── Buttons & inputs ── */
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--line); background:var(--card);
+         padding:8px 14px; border-radius:9px; cursor:pointer; font-weight:600; white-space:nowrap; }
+  .btn:hover { border-color:var(--faint); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .btn.primary:hover { filter:brightness(1.08); }
+  .btn.ghost { background:none; border-color:transparent; color:var(--dim); padding:6px 8px; }
+  .btn.ghost:hover { color:var(--ink); background:var(--sunk); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn.wide { width:100%; }
+  .linkish { border:0; background:none; padding:0; color:var(--accent); cursor:pointer; text-decoration:underline; }
+  input[type=text], input[type=number], select, textarea {
+    width:100%; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+  }
+  textarea { font-family:'Space Mono', monospace; font-size:12px; resize:vertical; min-height:96px; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .field { display:block; margin-bottom:10px; }
+  .field > span { display:block; font-size:12px; font-weight:600; color:var(--dim); margin-bottom:4px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row > .grow { flex:1 1 160px; }
+  .err { color:var(--pol); font-size:12px; margin:8px 0 0; min-height:0; }
+  .err:empty { display:none; }
+  .note { color:var(--dim); font-size:12px; margin:8px 0 0; }
+  .note:empty { display:none; }
+  details summary { cursor:pointer; font-weight:600; font-size:13px; }
+  details[open] summary { margin-bottom:10px; }
+
+  /* ── Transport ── */
+  .transport { position:sticky; top:8px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:10px 12px; }
+  .transport .play { min-width:104px; }
+  .seg { display:inline-flex; background:var(--sunk); border:1px solid var(--line); border-radius:9px; padding:2px; }
+  .seg button { border:0; background:none; padding:6px 10px; border-radius:7px; cursor:pointer; font-size:12px; font-weight:600; color:var(--dim); white-space:nowrap; }
+  .seg button[aria-pressed="true"] { background:var(--card); color:var(--ink); box-shadow:var(--shadow); }
+  .seg button:disabled { opacity:.4; cursor:not-allowed; }
+  .ctl { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); font-weight:600; }
+  .ctl input[type=number] { width:56px; padding:5px 6px; }
+  .ctl input[type=range] { width:110px; accent-color:var(--accent); }
+  .ctl output { font-family:'Space Mono', monospace; color:var(--ink); min-width:30px; }
+  .status { margin-left:auto; font-size:12px; color:var(--dim); font-family:'Space Mono', monospace; }
+
+  /* ── Sequence panels ── */
+  .panel { padding:0; overflow:hidden; }
+  .panel.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--shadow); }
+  .ph { display:flex; align-items:center; gap:8px; padding:10px 12px 8px 14px; border-bottom:1px solid var(--line); }
+  .pick { display:flex; align-items:center; gap:10px; flex:1; min-width:0; border:0; background:none; padding:2px 0; cursor:pointer; text-align:left; }
+  .dot { width:14px; height:14px; border-radius:50%; border:2px solid var(--faint); flex:none; }
+  .panel.sel .dot { border-color:var(--accent); background:radial-gradient(var(--accent) 45%, transparent 50%); }
+  .pname { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--sunk); color:var(--dim); white-space:nowrap; }
+  .badge.wt { color:var(--ink); }
+  .badge.mutn { color:var(--mut); }
+  .pbody { display:flex; flex-wrap:wrap; max-height:330px; overflow:auto; padding:6px 12px 12px; }
+  .blk { position:relative; display:inline-flex; gap:2px; margin:15px 10px 0 0; }
+  .num { position:absolute; top:-15px; left:0; font:10px 'Space Mono', monospace; color:var(--faint); }
+  .t { position:relative; width:22px; height:24px; border-radius:4px; display:inline-flex; align-items:center; justify-content:center;
+       font:700 11px 'Space Mono', monospace; cursor:pointer; transition:transform .08s; user-select:none; }
+  .t:hover { transform:translateY(-2px); }
+  .t.np  { background:var(--np);  color:var(--np-ink); }
+  .t.mid { background:var(--mid); color:var(--mid-ink); }
+  .t.pol { background:var(--pol); color:var(--pol-ink); }
+  .t[data-c]::after { content:attr(data-c); position:absolute; top:-3px; right:1px; font-size:9px; line-height:1; }
+  .t.mut  { box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--mut); }
+  .t.diff { box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--faint); }
+  .t.on   { transform:scale(1.3); z-index:3; box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--ink), 0 4px 14px rgba(0,0,0,.35); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px 12px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--bg); border-radius:999px;
+          padding:4px 10px 4px 8px; cursor:pointer; font-size:12px; }
+  .chip:hover { border-color:var(--mut); }
+  .chip b { font-family:'Space Mono', monospace; }
+  .sev { width:9px; height:9px; border-radius:50%; flex:none; }
+  .sev.mild { background:var(--sev-mild); } .sev.moderate { background:var(--sev-moderate); } .sev.radical { background:var(--sev-radical); }
+
+  /* ── Story (demo) ── */
+  .story { display:grid; grid-template-columns:minmax(0, 1.5fr) minmax(0, 1fr); gap:20px; }
+  @media (max-width: 720px) { .story { grid-template-columns:minmax(0, 1fr); } }
+  .story ol { margin:0; padding-left:20px; }
+  .story li { margin-bottom:4px; }
+  .swap { display:flex; flex-direction:column; justify-content:center; gap:10px; background:var(--sunk); border-radius:12px; padding:16px; }
+  .swap .pair { display:flex; align-items:center; justify-content:center; gap:14px; }
+  .swap .big { width:auto; min-width:46px; height:52px; font-size:22px; border-radius:8px; cursor:default; padding:0 8px; }
+  .swap .arrow { font-size:22px; color:var(--dim); }
+  .swap .cap { text-align:center; font-size:12px; color:var(--dim); }
+  .swap .cap b { color:var(--ink); }
+
+  /* ── Empty state ── */
+  .empty h2 { font-size:22px; }
+
+  /* ── Legend ── */
+  .lg { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .lg:last-child { margin-bottom:0; }
+  .lgrow { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .lgrow .sw { width:18px; height:18px; border-radius:4px; flex:none; }
+  .lgrow .grow { flex:1; }
+  .hear { border:1px solid var(--line); background:var(--bg); border-radius:999px; width:26px; height:26px; cursor:pointer; font-size:10px; flex:none; }
+  .hear:hover { border-color:var(--accent); color:var(--accent); }
+  .scale { display:grid; grid-template-columns:repeat(10, minmax(0, 1fr)); gap:3px; }
+  .scale .t { width:auto; min-width:0; height:24px; font-size:10px; border:0; padding:0; }
+  .scale-ends { display:flex; justify-content:space-between; font-size:11px; color:var(--faint); }
+  .ring { width:18px; height:18px; border-radius:4px; background:var(--mid); box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--mut); margin:0 3px; flex:none; }
+
+  footer { margin-top:28px; padding-top:14px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px 18px;
+           font-size:12px; color:var(--dim); }
+  footer .copy { font-weight:700; color:var(--ink); }
+
+  /* ── Welcome dialog — anchored near the top so it is visible inside a tall Streamlit iframe ── */
+  dialog { border:0; padding:0; border-radius:18px; width:min(560px, calc(100vw - 32px)); margin:72px auto auto;
+           background:var(--card); color:var(--ink); box-shadow:0 20px 60px rgba(0,0,0,.35); }
+  dialog::backdrop { background:rgba(10,10,12,.55); }
+  .welcome { padding:26px 26px 22px; }
+  .welcome h2 { margin:4px 0 10px; font-family:'Syne', sans-serif; font-weight:800; font-size:26px; line-height:1.15; }
+  .welcome p { margin:0 0 12px; color:var(--dim); }
+  .welcome .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  .welcome .tiles { display:flex; gap:3px; margin:14px 0 16px; }
+  .welcome .tiles .t { cursor:default; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>🧬 Data Sonification</h1>
+      <p>Bradley Lab · Sequence Sonification</p>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Mode">
+      <button role="tab" data-mode="demo">Sickle cell demo</button>
+      <button role="tab" data-mode="try">Try it yourself</button>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <main class="stage" id="stage"></main>
+    <aside class="side" id="side"></aside>
+  </div>
+
+  <footer>
+    <span class="copy">© 2026 University of Kentucky</span>
+    <span>Bradley Lab</span>
+    <span>Demo sequence: human hemoglobin β (UniProt P68871)</span>
+    <span>Piano samples: Salamander Grand Piano</span>
+  </footer>
+</div>
+
+<dialog id="welcome" aria-labelledby="welcomeTitle">
+  <div class="welcome">
+    <div class="eyebrow">Data Sonification · Bradley Lab</div>
+    <h2 id="welcomeTitle">Hear a single mutation</h2>
+    <p>Proteins are chains of 20 kinds of amino acids. Data Sonification plays each one as a note, so a change in the chain becomes a change in the music.</p>
+    <p>Start with a real example: sickle cell disease is caused by just <b>one</b> amino acid change out of 146 in hemoglobin.</p>
+    <div class="tiles" aria-hidden="true">
+      <span class="t mid">T</span><span class="t mid">P</span><span class="t pol" data-c="−">E</span>
+      <span class="arrow dim" style="padding:0 6px">→</span>
+      <span class="t mid">T</span><span class="t mid">P</span><span class="t np mut">V</span>
+    </div>
+    <p class="small">🎧 Headphones help: the normal protein plays in your left ear, the sickle cell version in your right.</p>
+    <div class="actions">
+      <button class="btn primary" id="welcomePlay">▶ Play the sickle cell demo</button>
+      <button class="btn" id="welcomeTry">Try it yourself</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+// ── Amino acid model ─────────────────────────────────────────────────────────
+// Kyte-Doolittle hydropathy: positive = water-hating, negative = water-loving
+const KD = { I:4.5, V:4.2, L:3.8, F:2.8, C:2.5, M:1.9, A:1.8, G:-0.4, T:-0.7, S:-0.8,
+             W:-0.9, Y:-1.3, P:-1.6, H:-3.2, E:-3.5, Q:-3.5, D:-3.5, N:-3.5, K:-3.9, R:-4.5 };
+const AA_NAME = { A:'Alanine', R:'Arginine', N:'Asparagine', D:'Aspartic acid', C:'Cysteine', Q:'Glutamine',
+                  E:'Glutamic acid', G:'Glycine', H:'Histidine', I:'Isoleucine', L:'Leucine', K:'Lysine',
+                  M:'Methionine', F:'Phenylalanine', P:'Proline', S:'Serine', T:'Threonine', W:'Tryptophan',
+                  Y:'Tyrosine', V:'Valine' };
+const CHARGE = { K:1, R:1, H:1, D:-1, E:-1 };
+const CLASS_LABEL = { np:'Nonpolar', mid:'In between', pol:'Polar' };
+const PENTATONIC = ['C', 'D', 'E', 'G', 'A'];
+
+// Rank by hydropathy (most water-hating first) → 20 distinct pentatonic pitches, C3 … A6
+const BY_PITCH = Object.keys(KD).sort((a, b) => KD[b] - KD[a] || (a < b ? -1 : 1));
+const AA = {};
+BY_PITCH.forEach((aa, i) => {
+  const kd = KD[aa];
+  AA[aa] = {
+    kd, name: AA_NAME[aa], charge: CHARGE[aa] || 0,
+    cls: kd > 1.5 ? 'np' : kd < -2 ? 'pol' : 'mid',
+    note: PENTATONIC[i % 5] + (3 + Math.floor(i / 5)),
+  };
+});
+
+// BLOSUM62 (NCBI) — how often one amino acid substitutes for another in related proteins.
+const B62_ORDER = 'ARNDCQEGHILKMFPSTWYV';
+const B62_ROWS = [
+  ' 4 -1 -2 -2  0 -1 -1  0 -2 -1 -1 -1 -1 -2 -1  1  0 -3 -2  0',
+  '-1  5  0 -2 -3  1  0 -2  0 -3 -2  2 -1 -3 -2 -1 -1 -3 -2 -3',
+  '-2  0  6  1 -3  0  0  0  1 -3 -3  0 -2 -3 -2  1  0 -4 -2 -3',
+  '-2 -2  1  6 -3  0  2 -1 -1 -3 -4 -1 -3 -3 -1  0 -1 -4 -3 -3',
+  ' 0 -3 -3 -3  9 -3 -4 -3 -3 -1 -1 -3 -1 -2 -3 -1 -1 -2 -2 -1',
+  '-1  1  0  0 -3  5  2 -2  0 -3 -2  1  0 -3 -1  0 -1 -2 -1 -2',
+  '-1  0  0  2 -4  2  5 -2  0 -3 -3  1 -2 -3 -1  0 -1 -3 -2 -2',
+  ' 0 -2  0 -1 -3 -2 -2  6 -2 -4 -4 -2 -3 -3 -2  0 -2 -2 -3 -3',
+  '-2  0  1 -1 -3  0  0 -2  8 -3 -3 -1 -2 -1 -2 -1 -2 -2  2 -3',
+  '-1 -3 -3 -3 -1 -3 -3 -4 -3  4  2 -3  1  0 -3 -2 -1 -3 -1  3',
+  '-1 -2 -3 -4 -1 -2 -3 -4 -3  2  4 -2  2  0 -3 -2 -1 -2 -1  1',
+  '-1  2  0 -1 -3  1  1 -2 -1 -3 -2  5 -1 -3 -1  0 -1 -3 -2 -2',
+  '-1 -1 -2 -3 -1  0 -2 -3 -2  1  2 -1  5  0 -2 -1 -1 -1 -1  1',
+  '-2 -3 -3 -3 -2 -3 -3 -3 -1  0  0 -3  0  6 -4 -2 -2  1  3 -1',
+  '-1 -2 -2 -1 -3 -1 -1 -2 -2 -3 -3 -1 -2 -4  7 -1 -1 -4 -3 -2',
+  ' 1 -1  1  0 -1  0  0  0 -1 -2 -2  0 -1 -2 -1  4  1 -3 -2 -2',
+  ' 0 -1  0 -1 -1 -1 -1 -2 -2 -1 -1 -1 -1 -2 -1  1  5 -2 -2  0',
+  '-3 -3 -4 -4 -2 -2 -3 -2 -2 -3 -2 -3 -1  1 -4 -3 -2 11  2 -3',
+  '-2 -2 -2 -3 -2 -1 -2 -3  2 -1 -1 -2 -1  3 -3 -2 -2  2  7 -1',
+  ' 0 -3 -3 -3 -1 -2 -2 -3 -3  3  1 -2  1 -1 -2 -2  0 -3 -1  4',
+];
+const BLOSUM = {};
+B62_ROWS.forEach((row, r) => {
+  BLOSUM[B62_ORDER[r]] = {};
+  row.trim().split(/\s+/).forEach((v, c) => { BLOSUM[B62_ORDER[r]][B62_ORDER[c]] = +v; });
+});
+
+const SEV_LABEL = { mild:'Conservative', moderate:'Moderate', radical:'Radical' };
+const SEV_SOUND = { mild:'slightly out of tune', moderate:'half-step rub', radical:'full clash' };
+
+function severity(from, to) {
+  if (!AA[from] || !AA[to]) return { score:null, level:'radical' };   // insertion / deletion
+  const score = BLOSUM[from][to];
+  return { score, level: score >= 1 ? 'mild' : score >= -1 ? 'moderate' : 'radical' };
+}
+
+// ── Sequence helpers ─────────────────────────────────────────────────────────
+function cleanSeq(raw) {
+  let seq = '';
+  const unknown = new Set();
+  for (const ch of raw.toUpperCase().replace(/[^A-Z]/g, '')) {
+    if (AA[ch]) seq += ch; else unknown.add(ch);
+  }
+  return { seq, unknown: [...unknown] };
+}
+
+function headerName(line) {
+  // ">sp|P68871|HBB_HUMAN Hemoglobin…" → "HBB_HUMAN"
+  const first = line.slice(1).trim().split(/\s+/)[0] || '';
+  return first.split('|').filter(Boolean).pop() || '';
+}
+
+function parseFasta(text) {
+  const records = [], unknown = new Set();
+  let name = null, buf = [];
+  const flush = () => {
+    const r = cleanSeq(buf.join(''));
+    r.unknown.forEach(u => unknown.add(u));
+    if (r.seq) records.push({ name: name || `Sequence ${records.length + 1}`, seq: r.seq });
+  };
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.startsWith('>')) { flush(); name = headerName(t); buf = []; }
+    else buf.push(t);
+  }
+  flush();
+  return { records, unknown: [...unknown] };
+}
+
+function parseMutations(text, base) {
+  const tokens = text.split(/[\s,;]+/).filter(Boolean);
+  if (!tokens.length) throw new Error('Type at least one mutation, like E6V.');
+  return tokens.map(tok => {
+    const m = tok.toUpperCase().match(/^([A-Z])(\d+)([A-Z])$/);
+    if (!m) throw new Error(`“${tok}” should look like E6V: original letter, position, new letter.`);
+    const from = m[1], pos = +m[2], to = m[3];
+    if (pos < 1 || pos > base.length) throw new Error(`Position ${pos} is outside the sequence (1–${base.length}).`);
+    if (!AA[to]) throw new Error(`“${to}” isn’t one of the 20 amino acid letters.`);
+    const actual = base[pos - 1];
+    if (actual !== from) throw new Error(`Position ${pos} is ${actual} (${AA[actual].name}), not ${from}.`);
+    return { pos, to };
+  });
+}
+
+function applyMutations(seq, muts) {
+  const arr = seq.split('');
+  for (const { pos, to } of muts) arr[pos - 1] = to;
+  return arr.join('');
+}
+
+function diffPositions(wt, seq) {
+  const out = [];
+  for (let i = 0; i < Math.max(wt.length, seq.length); i++) if (wt[i] !== seq[i]) out.push(i);
+  return out;
+}
+
+function mutLabel(wt, seq, i) { return `${wt[i] || '–'}${i + 1}${seq[i] || '–'}`; }
+
+function uniqueName(base, seqs) {
+  const taken = new Set(seqs.map(s => s.name));
+  let name = base, n = 2;
+  while (taken.has(name)) name = `${base} (${n++})`;
+  return name;
+}
+
+function mergeRanges(ranges, gap) {
+  const out = [];
+  for (const r of [...ranges].sort((a, b) => a[0] - b[0])) {
+    const last = out[out.length - 1];
+    if (last && r[0] <= last[1] + gap + 1) last[1] = Math.max(last[1], r[1]);
+    else out.push([...r]);
+  }
+  return out;
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+function downloadFasta(filename, records) {
+  const text = records.map(r => `>${r.name}\n${r.seq.match(/.{1,60}/g).join('\n')}\n`).join('');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type:'text/plain' }));
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ── Workspaces ───────────────────────────────────────────────────────────────
+// Mature human β-globin (UniProt P68871 without the initiator Met), numbered the
+// conventional way so that the sickle mutation is Glu6Val.
+const HBB = 'VHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLDNLKGTFATLSELHCDKLHVDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH';
+const HBS = applyMutations(HBB, [{ pos:6, to:'V' }]);
+
+const WS = {
+  demo: { seqs: [ { name:'Normal β-globin (HbA)', seq:HBB }, { name:'Sickle cell β-globin (HbS)', seq:HBS } ],
+          selected:1, compare:true, focus:true },
+  try:  { seqs: [], selected:0, compare:true, focus:false },
+};
+const state = { mode:'demo', bpm:160, radius:6 };
+const ws = () => WS[state.mode];
+const GAP_STEPS = 3;   // silent steps between mutation windows
+
+// ── Sound engine ─────────────────────────────────────────────────────────────
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function shift(note, semis) {
+  const m = note.match(/^([A-G]#?)(\d)$/);
+  const midi = NOTE_NAMES.indexOf(m[1]) + 12 * +m[2] + semis;
+  return NOTE_NAMES[((midi % 12) + 12) % 12] + Math.floor(midi / 12);
+}
+
+const Sound = {
+  banks: null, pianoReady: false, error: null, _init: null,
+
+  ensure() { return this._init || (this._init = this.init()); },
+
+  async init() {
+    if (typeof Tone === 'undefined') throw new Error('Audio library failed to load — check your connection.');
+    await Tone.start();
+    const comp = new Tone.Compressor({ threshold:-18, ratio:3, attack:0.03, release:0.25 }).toDestination();
+    const room = new Tone.Reverb({ decay:1.8, wet:0.2, preDelay:0.01 }).connect(comp);
+
+    // One voice bank per stereo position: centre, left (WT), right (variant)
+    this.banks = {};
+    for (const [key, pan] of [['c', 0], ['l', -0.8], ['r', 0.8]]) {
+      const out = new Tone.Panner(pan).connect(room);
+      const muffle = new Tone.Filter(1500, 'lowpass').connect(out);
+      const bank = {
+        out, piano: null,
+        keys: new Tone.PolySynth(Tone.FMSynth, {          // stand-in until piano samples arrive
+          harmonicity:1, modulationIndex:1.5,
+          envelope:{ attack:0.002, decay:0.6, sustain:0.15, release:1 } }).connect(out),
+        bell: new Tone.PolySynth(Tone.FMSynth, {          // positive charge
+          harmonicity:3.01, modulationIndex:6,
+          envelope:{ attack:0.001, decay:0.8, sustain:0, release:1.1 },
+          modulationEnvelope:{ attack:0.001, decay:0.25, sustain:0, release:0.4 } }).connect(out),
+        soft: new Tone.PolySynth(Tone.AMSynth, {          // negative charge
+          harmonicity:1.5, oscillator:{ type:'triangle' },
+          envelope:{ attack:0.025, decay:0.5, sustain:0.3, release:0.9 } }).connect(muffle),
+        sour: new Tone.PolySynth(Tone.Synth, {            // conservative-mutation double, +45 cents
+          detune:45, oscillator:{ type:'triangle' },
+          envelope:{ attack:0.005, decay:0.5, sustain:0.2, release:0.8 } }).connect(out),
+      };
+      bank.keys.volume.value = -6;
+      bank.bell.volume.value = -11;
+      bank.soft.volume.value = -3;
+      bank.sour.volume.value = -6;
+      this.banks[key] = bank;
+    }
+
+    const urls = {};
+    for (let o = 2; o <= 7; o++) for (const [n, f] of [['A','A'], ['C','C'], ['D#','Ds'], ['F#','Fs']]) urls[n + o] = `${f}${o}.mp3`;
+    const buffers = new Tone.ToneAudioBuffers({
+      urls, baseUrl:'https://tonejs.github.io/audio/salamander/',
+      onload: () => {
+        for (const bank of Object.values(this.banks)) {
+          const map = {};
+          for (const k of Object.keys(urls)) map[k] = buffers.get(k);
+          bank.piano = new Tone.Sampler({ urls:map, release:1.2 }).connect(bank.out);
+          bank.piano.volume.value = -3;
+        }
+        this.pianoReady = true;
+        renderStatus();
+      },
+      onerror: () => { this.error = 'Piano samples unavailable — using a synth instead.'; renderStatus(); },
+    });
+  },
+
+  residue(bankKey, aa, time, velocity = 0.8) {
+    const info = AA[aa], bank = this.banks[bankKey];
+    const inst = info.charge > 0 ? bank.bell : info.charge < 0 ? bank.soft : (bank.piano || bank.keys);
+    inst.triggerAttackRelease(info.note, '8n', time, velocity);
+  },
+
+  mutation(bankKey, from, to, time) {
+    this.residue(bankKey, to, time, 0.9);
+    const bank = this.banks[bankKey], keys = bank.piano || bank.keys, note = AA[to].note;
+    const { level } = severity(from, to);
+    if (level === 'mild') bank.sour.triggerAttackRelease(note, '8n', time, 0.6);
+    else if (level === 'moderate') keys.triggerAttackRelease(shift(note, 1), '8n', time, 0.6);
+    else keys.triggerAttackRelease([shift(note, 1), shift(note, 6), shift(note, 10)], '4n', time, 0.75);
+  },
+};
+
+// ── Player ───────────────────────────────────────────────────────────────────
+const player = { part:null, playing:false, paused:false, lit:[], label:'' };
+
+// A plan is the list of residues to play, one per 8th-note step.
+function buildPlan({ from = 0, only = null } = {}) {
+  const w = ws(), k = w.selected;
+  const wt = w.seqs[0].seq, seq = w.seqs[k].seq;
+  const compare = w.compare && k !== 0;
+  const len = compare ? Math.max(wt.length, seq.length) : seq.length;
+  const diffs = k === 0 ? [] : diffPositions(wt, seq);
+  const win = i => [Math.max(0, i - state.radius), Math.min(len - 1, i + state.radius)];
+
+  let ranges, loop = true, startStep = 0;
+  if (only !== null) { ranges = [win(only)]; loop = false; }
+  else if (w.focus && diffs.length) ranges = mergeRanges(diffs.map(win), GAP_STEPS);
+  else { ranges = [[0, len - 1]]; startStep = Math.min(from, len - 1); }
+
+  const events = [];
+  let step = 0;
+  ranges.forEach((r, n) => {
+    if (n) step += GAP_STEPS;
+    for (let i = r[0]; i <= r[1]; i++) events.push({ step: step++, i, k, compare, wt: wt[i], aa: seq[i] });
+  });
+  return { events, steps: step, loop, startStep, compare };
+}
+
+function playStep(ev, time) {
+  const { wt, aa, compare } = ev;
+  if (ev.k === 0 || wt === aa) { if (aa) Sound.residue('c', aa, time); return; }
+  if (compare) {
+    if (wt) Sound.residue('l', wt, time, 0.7);
+    if (aa) Sound.mutation('r', wt, aa, time);
+  } else if (aa) {
+    Sound.mutation('c', wt, aa, time);
+  }
+}
+
+async function play(opts = {}) {
+  try { await Sound.ensure(); }
+  catch (e) { Sound.error = e.message; renderStatus(); return; }
+  stopTransport();
+  const plan = buildPlan(opts);
+  if (!plan.events.length) return;
+
+  const T = Tone.Transport, tps = T.PPQ / 2;
+  T.bpm.value = state.bpm;
+  player.part = new Tone.Part((time, ev) => {
+    playStep(ev, time);
+    Tone.Draw.schedule(() => light(ev), time);
+  }, plan.events.map(ev => ({ ...ev, time: `${ev.step * tps}i` }))).start(0);
+
+  const end = `${plan.steps * tps}i`;
+  if (plan.loop) { T.loop = true; T.loopStart = 0; T.loopEnd = end; }
+  else { T.loop = false; T.scheduleOnce(t => Tone.Draw.schedule(stop, t), `${(plan.steps + 2) * tps}i`); }
+  T.start('+0.05', `${plan.startStep * tps}i`);
+
+  const name = ws().seqs[ws().selected].name;
+  player.label = opts.only !== null && opts.only !== undefined ? `${name} · around #${opts.only + 1}`
+               : plan.compare ? `${name} vs WT` : name;
+  player.playing = true; player.paused = false;
+  renderTransport();
+}
+
+function stopTransport() {
+  if (typeof Tone === 'undefined') return;
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  Tone.Transport.loop = false;
+  Tone.Draw.cancel();   // drop highlights already queued for the next few notes
+  if (player.part) { player.part.dispose(); player.part = null; }
+}
+
+function stop() {
+  stopTransport();
+  unlight();
+  player.playing = false; player.paused = false;
+  renderTransport();
+}
+
+function togglePlay() {
+  if (player.playing && !player.paused) { Tone.Transport.pause(); player.paused = true; renderTransport(); }
+  else if (player.paused) { Tone.Transport.start(); player.paused = false; renderTransport(); }
+  else play();
+}
+
+// Restart from the top if a setting that changes what is played is altered mid-song
+function replayIfPlaying() { if (player.playing) play(); }
+
+function unlight() { player.lit.forEach(t => t.classList.remove('on')); player.lit = []; }
+
+function light(ev) {
+  unlight();
+  const ks = ev.compare ? [0, ev.k] : [ev.k];
+  for (const k of ks) {
+    const tile = document.querySelector(`.panel[data-k="${k}"] .t[data-i="${ev.i}"]`);
+    if (!tile) continue;
+    tile.classList.add('on');
+    player.lit.push(tile);
+    const body = tile.closest('.pbody'), br = body.getBoundingClientRect(), tr = tile.getBoundingClientRect();
+    if (tr.top < br.top || tr.bottom > br.bottom) body.scrollTop += tr.top - br.top - br.height / 2;
+  }
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function tileHtml(aa, i, extra = '') {
+  const info = AA[aa];
+  const c = info.charge > 0 ? ' data-c="+"' : info.charge < 0 ? ' data-c="−"' : '';
+  return `<span class="t ${info.cls}${extra}" data-i="${i}"${c} title="#${i + 1} ${info.name} (${aa}) · ${CLASS_LABEL[info.cls]}${extra.includes('mut') ? ' · mutated' : ''}">${aa}</span>`;
+}
+
+function render() {
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === state.mode));
+  const w = ws();
+  const stage = $('stage');
+  if (!w.seqs.length) { stage.innerHTML = loaderHtml(); renderSide(); return; }
+  stage.innerHTML = (state.mode === 'demo' ? storyHtml() : '') +
+    '<section class="card transport" id="transport"></section><div id="panels" class="stage"></div>';
+  renderTransport();
+  renderPanels();
+  renderSide();
+}
+
+function storyHtml() {
+  const e = AA.E, v = AA.V, s = severity('E', 'V');
+  return `
+  <section class="card story">
+    <div>
+      <div class="eyebrow">Demo · Sickle cell disease</div>
+      <h2>One letter changes. Listen for it.</h2>
+      <p>Hemoglobin carries oxygen in red blood cells. Its β-chain is 146 amino acids long, and in sickle cell disease
+         only one of them is different: at <b>position 6</b>, glutamic acid (E) is replaced by valine (V).</p>
+      <p>Glutamic acid is polar and negatively charged, so it is comfortable in water. Valine is nonpolar. The new oily
+         patch makes hemoglobin molecules stick together when oxygen is low, bending red blood cells into a sickle shape.</p>
+      <ol>
+        <li>Press <b>Play</b>. You’ll hear the stretch around position 6, normal in your left ear and sickle cell in your right.</li>
+        <li>Listen for the clash: a high, soft note drops to a low one with a jarring chord.</li>
+        <li>Switch to <b>Whole protein</b> to hear all 146 notes, or click any square to start from there.</li>
+      </ol>
+    </div>
+    <div class="swap">
+      <div class="pair">
+        <span class="t big ${e.cls}" data-c="−">E</span><span class="arrow">→</span><span class="t big ${v.cls} mut">V</span>
+      </div>
+      <div class="cap"><b>Glu6Val</b> · ${e.name} → ${v.name}</div>
+      <div class="cap">Polar, charged → Nonpolar<br>Pitch ${e.note} → ${v.note} · BLOSUM62 ${s.score} (${SEV_LABEL[s.level].toLowerCase()})</div>
+      <button class="btn" data-act="hear" data-k="1" data-i="5">▶ Hear just this spot</button>
+      <button class="btn ghost" data-act="tryit">Try it yourself →</button>
+    </div>
+  </section>`;
+}
+
+function loaderHtml() {
+  return `
+  <section class="card empty">
+    <div class="eyebrow">Try it yourself</div>
+    <h2>Load a protein</h2>
+    <p class="dim">Paste amino-acid letters (like <span class="mono">MKTAYIAKQR…</span>) or a FASTA file. The first sequence
+       becomes the <b>wild-type (WT)</b>, the original that every other sequence is compared against. Extra sequences in
+       the same file are added as variants.</p>
+    <label class="field"><span>Sequence</span>
+      <textarea id="loadText" rows="5" placeholder=">MyProtein&#10;MKTAYIAKQRQISFVKSHFSRQ…"></textarea></label>
+    <div class="row">
+      <input type="text" id="loadName" class="grow" placeholder="Name (optional)">
+      <label class="btn">📁 Upload FASTA<input type="file" id="loadFile" accept=".fasta,.fa,.faa,.txt" hidden></label>
+      <button class="btn primary" data-act="load">Load</button>
+    </div>
+    <p class="err" id="loadErr"></p>
+    <p class="note">No sequence handy? <button class="linkish" data-act="example">Use human β-globin</button>
+       or copy one from <a href="https://www.uniprot.org" target="_blank" rel="noopener">UniProt</a>.</p>
+  </section>`;
+}
+
+function renderTransport() {
+  const el = $('transport');
+  if (!el) return;
+  const w = ws(), k = w.selected;
+  const nDiff = k === 0 ? 0 : diffPositions(w.seqs[0].seq, w.seqs[k].seq).length;
+  const canCompare = k !== 0, canFocus = nDiff > 0;
+  const compare = w.compare && canCompare, focus = w.focus && canFocus;
+  const playLabel = player.playing && !player.paused ? '⏸ Pause' : player.paused ? '▶ Resume' : '▶ Play';
+  el.innerHTML = `
+    <button class="btn primary play" data-act="play">${playLabel}</button>
+    <button class="btn" data-act="stop" title="Stop">■</button>
+    <div class="seg" role="group" aria-label="Listen">
+      <button data-set="compare" data-v="0" aria-pressed="${!compare}">This sequence</button>
+      <button data-set="compare" data-v="1" aria-pressed="${compare}" ${canCompare ? '' : 'disabled title="Select a variant to compare it with the WT"'}>🎧 Compare with WT</button>
+    </div>
+    <div class="seg" role="group" aria-label="Range">
+      <button data-set="focus" data-v="0" aria-pressed="${!focus}">Whole protein</button>
+      <button data-set="focus" data-v="1" aria-pressed="${focus}" ${canFocus ? '' : 'disabled title="This sequence has no mutations vs the WT"'}>Mutations only</button>
+    </div>
+    ${focus ? `<label class="ctl">±<input type="number" id="radius" min="1" max="40" value="${state.radius}">residues</label>` : ''}
+    <label class="ctl">Tempo<input type="range" id="bpm" min="60" max="400" step="10" value="${state.bpm}"><output id="bpmOut">${state.bpm}</output></label>
+    <span class="status" id="status"></span>`;
+  renderStatus();
+}
+
+function renderStatus() {
+  const el = $('status');
+  if (!el) return;
+  if (Sound.error) el.textContent = Sound.error;
+  else if (player.paused) el.textContent = `paused · ${player.label}`;
+  else if (player.playing) el.textContent = `♪ ${player.label}${Sound.pianoReady ? '' : ' · loading piano…'}`;
+  else el.textContent = 'Space bar = play / pause';
+}
+
+function renderPanels() {
+  const el = $('panels');
+  if (!el) return;
+  const w = ws(), wt = w.seqs[0].seq;
+  const sel = w.selected, compare = w.compare && sel !== 0;
+  const selDiff = new Set(sel === 0 ? [] : diffPositions(wt, w.seqs[sel].seq));
+
+  el.innerHTML = w.seqs.map(({ name, seq }, k) => {
+    const isWT = k === 0;
+    const diffs = isWT ? [] : diffPositions(wt, seq);
+    const dset = new Set(diffs);
+    let blocks = '';
+    for (let b = 0; b < seq.length; b += 10) {
+      let tiles = '';
+      for (let i = b; i < Math.min(b + 10, seq.length); i++) {
+        const extra = dset.has(i) ? ' mut' : (isWT && compare && selDiff.has(i)) ? ' diff' : '';
+        tiles += tileHtml(seq[i], i, extra);
+      }
+      blocks += `<span class="blk"><span class="num">${b + 1}</span>${tiles}</span>`;
+    }
+    const shown = diffs.slice(0, 40);
+    const chips = shown.map(i => {
+      const s = severity(wt[i], seq[i]);
+      return `<button class="chip" data-act="hear" data-k="${k}" data-i="${i}" title="Play the region around this mutation">
+        <span class="sev ${s.level}"></span><b>${mutLabel(wt, seq, i)}</b>${SEV_LABEL[s.level]}${s.score === null ? '' : ` <span class="dim">(${s.score})</span>`} ▶</button>`;
+    }).join('') + (diffs.length > shown.length ? `<span class="dim small">+ ${diffs.length - shown.length} more</span>` : '');
+    const badge = isWT ? `<span class="badge wt">WT · ${seq.length} aa</span>`
+                       : `<span class="badge mutn">${diffs.length} mutation${diffs.length === 1 ? '' : 's'}</span>`;
+    const tools = state.mode === 'try' ? `
+        <button class="btn ghost" data-act="download" data-k="${k}" title="Download FASTA">⬇</button>
+        ${isWT ? '' : `<button class="btn ghost" data-act="remove" data-k="${k}" title="Remove variant">✕</button>`}` : '';
+    return `
+    <article class="card panel${k === sel ? ' sel' : ''}" data-k="${k}">
+      <header class="ph">
+        <button class="pick" data-act="select" data-k="${k}" title="Play this sequence">
+          <span class="dot"></span><span class="pname">${esc(name)}</span>${badge}
+        </button>${tools}
+      </header>
+      <div class="pbody">${blocks}</div>
+      ${diffs.length ? `<div class="chips">${chips}</div>` : ''}
+    </article>`;
+  }).join('');
+  player.lit = [];
+}
+
+function renderSide() {
+  const w = ws();
+  let html = '';
+  if (state.mode === 'try' && w.seqs.length) {
+    const opts = w.seqs.map((s, k) => `<option value="${k}"${k === w.selected ? ' selected' : ''}>${esc(s.name)}${k === 0 ? ' (WT)' : ''}</option>`).join('');
+    const aaOpts = BY_PITCH.slice().sort().map(a => `<option value="${a}">${a} · ${AA[a].name}</option>`).join('');
+    html += `
+    <section class="card">
+      <h3>Make a mutation</h3>
+      <label class="field"><span>Start from</span><select id="mutBase">${opts}</select></label>
+      <label class="field"><span>Mutation(s)</span><input type="text" id="mutText" class="mono" placeholder="E6V   or   L11K, V3A" autocomplete="off"></label>
+      <label class="field"><span>Name (optional)</span><input type="text" id="mutName" placeholder="Defaults to the mutation"></label>
+      <button class="btn primary wide" data-act="mutate">Create variant</button>
+      <p class="err" id="mutErr"></p>
+      <p class="note">Write the original letter, its position, then the new letter. <span class="mono">E6V</span> means
+         “position 6 changes from E to V”.</p>
+      <details style="margin-top:12px">
+        <summary>Replace every amino acid of one kind</summary>
+        <div class="row">
+          <select id="swapFrom" class="grow">${aaOpts}</select>
+          <span class="dim">→</span>
+          <select id="swapTo" class="grow">${aaOpts}</select>
+        </div>
+        <button class="btn wide" data-act="swap" style="margin-top:8px">Create variant</button>
+        <p class="err" id="swapErr"></p>
+      </details>
+    </section>
+    <section class="card">
+      <h3>Sequences</h3>
+      <details>
+        <summary>Add another sequence to compare</summary>
+        <textarea id="addText" rows="3" placeholder=">Variant&#10;MKTAYIAKQR…"></textarea>
+        <div class="row" style="margin-top:8px">
+          <label class="btn">📁 Upload<input type="file" id="addFile" accept=".fasta,.fa,.faa,.txt" hidden></label>
+          <button class="btn primary" data-act="add" style="flex:1">Add</button>
+        </div>
+        <p class="err" id="addErr"></p>
+      </details>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-act="downloadAll" style="flex:1">⬇ Download all</button>
+        <button class="btn" data-act="reset" style="flex:1">Start over</button>
+      </div>
+    </section>`;
+  }
+  html += legendHtml();
+  $('side').innerHTML = html;
+}
+
+function legendHtml() {
+  const scale = BY_PITCH.map(aa => {
+    const info = AA[aa];
+    return `<button class="t ${info.cls}" data-act="note" data-aa="${aa}" title="${info.name} · ${info.note}">${aa}</button>`;
+  }).join('');
+  const hear = (p, label) => `<button class="hear" data-act="preview" data-p="${p}" title="Hear ${label}" aria-label="Hear ${label}">▶</button>`;
+  return `
+  <section class="card">
+    <h3>How to listen</h3>
+    <div class="lg">
+      <div class="small dim">Color: how much it likes water</div>
+      <div class="lgrow"><span class="sw" style="background:var(--np)"></span><span class="grow"><b>Nonpolar</b> · water-hating</span>${hear('np', 'nonpolar')}</div>
+      <div class="lgrow"><span class="sw" style="background:var(--mid)"></span><span class="grow"><b>In between</b></span>${hear('mid', 'in between')}</div>
+      <div class="lgrow"><span class="sw" style="background:var(--pol)"></span><span class="grow"><b>Polar</b> · water-loving</span>${hear('pol', 'polar')}</div>
+    </div>
+    <div class="lg">
+      <div class="small dim">Pitch: every amino acid has its own note. Tap to hear it.</div>
+      <div class="scale">${scale}</div>
+      <div class="scale-ends"><span>low · water-hating</span><span>high · water-loving</span></div>
+    </div>
+    <div class="lg">
+      <div class="small dim">Instrument: electric charge</div>
+      <div class="lgrow"><span class="grow"><b>Piano</b> · no charge</span>${hear('neutral', 'piano')}</div>
+      <div class="lgrow"><span class="grow"><b>Bell</b> · positive <span class="mono">+</span> (K, R, H)</span>${hear('pos', 'bell')}</div>
+      <div class="lgrow"><span class="grow"><b>Soft tone</b> · negative <span class="mono">−</span> (D, E)</span>${hear('neg', 'soft tone')}</div>
+    </div>
+    <div class="lg">
+      <div class="small dim">Mutations: <span class="ring" style="display:inline-block;vertical-align:middle"></span> outlined. The bigger the chemical change, the harsher the clash.</div>
+      ${['mild', 'moderate', 'radical'].map(l => `
+      <div class="lgrow"><span class="sev ${l}"></span><span class="grow"><b>${SEV_LABEL[l]}</b> · ${SEV_SOUND[l]}</span>${hear(l, SEV_LABEL[l].toLowerCase() + ' mutation')}</div>`).join('')}
+      <div class="small dim">Severity comes from the BLOSUM62 substitution score (shown in brackets).</div>
+    </div>
+  </section>`;
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+function setMode(mode) {
+  if (mode === state.mode) return;
+  stop();
+  state.mode = mode;
+  render();
+}
+
+function loadRecords(records, unknown, wtName, errId) {
+  if (!records.length) { $(errId).textContent = 'No amino-acid sequence found. Use the one-letter codes (A, C, D, E…).'; return; }
+  stop();
+  const w = WS.try;
+  w.seqs = [];
+  records.forEach((r, i) => w.seqs.push({ name: uniqueName(i === 0 && wtName ? wtName : r.name, w.seqs), seq: r.seq }));
+  w.selected = w.seqs.length > 1 ? 1 : 0;
+  render();
+  if (unknown.length) flash(`Ignored letters that aren’t amino acids: ${unknown.join(', ')}`);
+}
+
+function addRecords(records, unknown) {
+  if (!records.length) { $('addErr').textContent = 'No amino-acid sequence found.'; return; }
+  const w = WS.try;
+  records.forEach(r => w.seqs.push({ name: uniqueName(r.name === 'Sequence 1' ? 'Variant' : r.name, w.seqs), seq: r.seq }));
+  w.selected = w.seqs.length - 1;
+  stop(); render();
+  if (unknown.length) flash(`Ignored letters that aren’t amino acids: ${unknown.join(', ')}`);
+}
+
+function addVariant(name, seq) {
+  const w = WS.try;
+  w.seqs.push({ name: uniqueName(name, w.seqs), seq });
+  w.selected = w.seqs.length - 1;
+  stop(); render();
+}
+
+function flash(msg) {
+  const el = $('status');
+  if (el) el.textContent = msg;
+}
+
+function readFile(input, cb) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => cb(String(reader.result));
+  reader.readAsText(f);
+  input.value = '';
+}
+
+async function preview(kind) {
+  try { await Sound.ensure(); } catch (e) { Sound.error = e.message; renderStatus(); return; }
+  const t = Tone.now() + 0.05;
+  const demo = { np:['I', 'L', 'V'], mid:['G', 'T', 'Y'], pol:['N', 'Q', 'K'], neutral:['T', 'N', 'Q'], pos:['H', 'K', 'R'], neg:['D', 'E', 'D'] };
+  if (demo[kind]) { demo[kind].forEach((aa, n) => Sound.residue('c', aa, t + n * 0.28)); return; }
+  // Mutation previews: two normal notes, then the substitution
+  const sub = { mild:['I', 'V'], moderate:['S', 'G'], radical:['E', 'V'] }[kind];
+  ['T', 'Q'].forEach((aa, n) => Sound.residue('c', aa, t + n * 0.28));
+  Sound.mutation('c', sub[0], sub[1], t + 0.56);
+}
+
+document.addEventListener('click', e => {
+  const tab = e.target.closest('.tabs button');
+  if (tab) return setMode(tab.dataset.mode);
+
+  const set = e.target.closest('[data-set]');
+  if (set && !set.disabled) {
+    ws()[set.dataset.set] = set.dataset.v === '1';
+    renderTransport(); renderPanels(); replayIfPlaying();
+    return;
+  }
+
+  const tile = e.target.closest('.panel .t');
+  if (tile) {
+    const k = +tile.closest('.panel').dataset.k, i = +tile.dataset.i;
+    const w = ws();
+    w.selected = k; w.focus = false;
+    renderTransport(); renderPanels();
+    play({ from: i });
+    return;
+  }
+
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const w = ws(), k = el.dataset.k !== undefined ? +el.dataset.k : null;
+  switch (el.dataset.act) {
+    case 'play': togglePlay(); break;
+    case 'stop': stop(); break;
+    case 'select':
+      w.selected = k;
+      renderTransport(); renderPanels(); replayIfPlaying();
+      break;
+    case 'hear':
+      w.selected = k;
+      renderTransport(); renderPanels();
+      play({ only: +el.dataset.i });
+      break;
+    case 'tryit': setMode('try'); break;
+    case 'note':
+      Sound.ensure().then(() => Sound.residue('c', el.dataset.aa, Tone.now() + 0.02)).catch(err => { Sound.error = err.message; renderStatus(); });
+      break;
+    case 'preview': preview(el.dataset.p); break;
+    case 'load': {
+      const { records, unknown } = parseFasta($('loadText').value);
+      loadRecords(records, unknown, $('loadName').value.trim(), 'loadErr');
+      break;
+    }
+    case 'example':
+      loadRecords([{ name:'Human β-globin', seq:HBB }], [], '', 'loadErr');
+      break;
+    case 'mutate': {
+      const base = w.seqs[+$('mutBase').value];
+      const text = $('mutText').value.trim();
+      try {
+        const muts = parseMutations(text, base.seq);
+        const fallback = text.toUpperCase().split(/[\s,;]+/).filter(Boolean).join(' ');
+        addVariant($('mutName').value.trim() || fallback, applyMutations(base.seq, muts));
+      } catch (err) { $('mutErr').textContent = err.message; }
+      break;
+    }
+    case 'swap': {
+      const base = w.seqs[+$('mutBase').value], from = $('swapFrom').value, to = $('swapTo').value;
+      if (from === to) { $('swapErr').textContent = 'Pick two different amino acids.'; break; }
+      if (!base.seq.includes(from)) { $('swapErr').textContent = `${base.name} has no ${AA[from].name} (${from}).`; break; }
+      addVariant(`All ${from}→${to}`, base.seq.split(from).join(to));
+      break;
+    }
+    case 'add': {
+      const { records, unknown } = parseFasta($('addText').value);
+      addRecords(records, unknown);
+      break;
+    }
+    case 'remove':
+      stop();
+      w.seqs.splice(k, 1);
+      if (w.selected === k) w.selected = Math.min(k, w.seqs.length - 1);
+      else if (w.selected > k) w.selected--;
+      render();
+      break;
+    case 'download': {
+      const s = w.seqs[k];
+      downloadFasta(`${s.name.replace(/[^\w.-]+/g, '_')}.fasta`, [s]);
+      break;
+    }
+    case 'downloadAll': downloadFasta('data-sonification-sequences.fasta', w.seqs); break;
+    case 'reset':
+      if (confirm('Remove all loaded sequences and start over?')) { stop(); w.seqs = []; w.selected = 0; render(); }
+      break;
+  }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'bpm') {
+    state.bpm = +e.target.value;
+    $('bpmOut').textContent = state.bpm;
+    if (typeof Tone !== 'undefined') Tone.Transport.bpm.value = state.bpm;
+  }
+  if (['mutText', 'mutName', 'mutBase'].includes(e.target.id) && $('mutErr')) $('mutErr').textContent = '';
+});
+
+document.addEventListener('change', e => {
+  if (e.target.id === 'radius') {
+    state.radius = Math.max(1, Math.min(40, +e.target.value || 1));
+    replayIfPlaying();
+  }
+  if (e.target.id === 'loadFile') readFile(e.target, text => {
+    const { records, unknown } = parseFasta(text);
+    loadRecords(records, unknown, $('loadName').value.trim(), 'loadErr');
+  });
+  if (e.target.id === 'addFile') readFile(e.target, text => {
+    const { records, unknown } = parseFasta(text);
+    addRecords(records, unknown);
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code !== 'Space' || e.target.closest('input, textarea, select, button, dialog')) return;
+  if (!ws().seqs.length) return;
+  e.preventDefault();
+  togglePlay();
+});
+
+// ── Start ────────────────────────────────────────────────────────────────────
+render();
+const welcome = $('welcome');
+$('welcomePlay').addEventListener('click', () => { welcome.close(); setMode('demo'); play(); });
+$('welcomeTry').addEventListener('click', () => { welcome.close(); setMode('try'); });
+if (welcome.showModal) welcome.showModal();
+</script>
+</body>
+</html>
