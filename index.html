@@ -748,11 +748,18 @@ function storyHtml() {
   </section>`;
 }
 
-const UNIPROT_IDEAS = ['insulin', 'hemoglobin', 'lysozyme', 'myoglobin', 'green fluorescent protein'];
+// Reviewed UniProt entries; links open straight at the entry's sequence section
+const UNIPROT_IDEAS = [
+  ['Insulin (human)', 'P01308'],
+  ['Hemoglobin β (human)', 'P68871'],
+  ['Lysozyme (human)', 'P61626'],
+  ['Myoglobin (human)', 'P02144'],
+  ['Green fluorescent protein (jellyfish)', 'P42212'],
+];
 
 function loaderHtml() {
-  const ideas = UNIPROT_IDEAS.map(q =>
-    `<a class="idea" href="https://www.uniprot.org/uniprotkb?query=${encodeURIComponent(q)}" target="_blank" rel="noopener">${q}</a>`).join('');
+  const ideas = UNIPROT_IDEAS.map(([name, acc]) =>
+    `<a class="idea" href="https://www.uniprot.org/uniprotkb/${acc}/entry#sequences" target="_blank" rel="noopener">${name} ↗</a>`).join('');
   return `
   <section class="card empty">
     <div class="eyebrow">Try it yourself</div>
@@ -765,12 +772,12 @@ function loaderHtml() {
         <div class="step-title">Find a protein on UniProt</div>
         <a class="btn primary" href="https://www.uniprot.org" target="_blank" rel="noopener">Open UniProt.org ↗</a>
         <p>Search for a protein by name, then click one of the results. Entries marked
-           <b>Reviewed</b> (gold star) are the most reliable. Not sure what to search? Try one of these:</p>
+           <b>Reviewed</b> (gold star) are the most reliable. Not sure what to search? These open straight to a protein’s sequence:</p>
         <div class="ideas">${ideas}</div>
       </li>
       <li>
         <div class="step-title">Copy its sequence</div>
-        <p>On the protein’s page, scroll down to the <b>Sequence</b> section and click <b>Copy sequence</b>.
+        <p>On the protein’s page, scroll down to the <b>Sequence &amp; Isoform</b> section and click <b>Copy sequence</b>.
            You can also click <b>Download</b> and save it as a <b>FASTA</b> file.</p>
       </li>
       <li>
