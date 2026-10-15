@@ -73,7 +73,7 @@
 
   /* ── Buttons & inputs ── */
   .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--line); background:var(--card);
-         padding:8px 14px; border-radius:9px; cursor:pointer; font-weight:600; white-space:nowrap; }
+         padding:8px 14px; border-radius:9px; cursor:pointer; font-weight:600; white-space:nowrap; text-decoration:none; }
   .btn:hover { border-color:var(--faint); }
   .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
   .btn.primary:hover { filter:brightness(1.08); }
@@ -157,6 +157,17 @@
 
   /* ── Empty state ── */
   .empty h2 { font-size:22px; }
+  .steps { list-style:none; counter-reset:step; margin:16px 0 8px; padding:0; display:flex; flex-direction:column; gap:18px; }
+  .steps > li { counter-increment:step; position:relative; padding-left:42px; }
+  .steps > li::before { content:counter(step); position:absolute; left:0; top:-2px; width:28px; height:28px; border-radius:50%;
+                        background:var(--accent); color:var(--accent-ink); font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .steps .step-title { font-weight:700; font-size:15px; margin-bottom:8px; }
+  .steps p { margin:8px 0 0; }
+  .ideas { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .idea { font-size:12px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:var(--bg); text-decoration:none; }
+  .idea:hover { border-color:var(--accent); }
+  .nextstep ol { margin:0; padding-left:20px; }
+  .nextstep li { margin-bottom:4px; }
 
   /* ── Legend ── */
   .lg { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
@@ -599,7 +610,7 @@ function render() {
   const w = ws();
   const stage = $('stage');
   if (!w.seqs.length) { stage.innerHTML = loaderHtml(); renderSide(); return; }
-  stage.innerHTML = (state.mode === 'demo' ? storyHtml() : '') +
+  stage.innerHTML = (state.mode === 'demo' ? storyHtml() : w.seqs.length === 1 ? nextStepHtml() : '') +
     '<section class="card transport" id="transport"></section><div id="panels" class="stage"></div>';
   renderTransport();
   renderPanels();
@@ -635,24 +646,62 @@ function storyHtml() {
   </section>`;
 }
 
+const UNIPROT_IDEAS = ['insulin', 'hemoglobin', 'lysozyme', 'myoglobin', 'green fluorescent protein'];
+
 function loaderHtml() {
+  const ideas = UNIPROT_IDEAS.map(q =>
+    `<a class="idea" href="https://www.uniprot.org/uniprotkb?query=${encodeURIComponent(q)}" target="_blank" rel="noopener">${q}</a>`).join('');
   return `
   <section class="card empty">
     <div class="eyebrow">Try it yourself</div>
-    <h2>Load a protein</h2>
-    <p class="dim">Paste amino-acid letters (like <span class="mono">MKTAYIAKQR…</span>) or a FASTA file. The first sequence
-       becomes the <b>wild-type (WT)</b>, the original that every other sequence is compared against. Extra sequences in
-       the same file are added as variants.</p>
-    <label class="field"><span>Sequence</span>
-      <textarea id="loadText" rows="5" placeholder=">MyProtein&#10;MKTAYIAKQRQISFVKSHFSRQ…"></textarea></label>
-    <div class="row">
-      <input type="text" id="loadName" class="grow" placeholder="Name (optional)">
-      <label class="btn">📁 Upload FASTA<input type="file" id="loadFile" accept=".fasta,.fa,.faa,.txt" hidden></label>
-      <button class="btn primary" data-act="load">Load</button>
-    </div>
-    <p class="err" id="loadErr"></p>
-    <p class="note">No sequence handy? <button class="linkish" data-act="example">Use human β-globin</button>
-       or copy one from <a href="https://www.uniprot.org" target="_blank" rel="noopener">UniProt</a>.</p>
+    <h2>Hear any protein in three steps</h2>
+    <p class="dim">You need a protein’s amino-acid sequence: a string of letters like <span class="mono">MALWMRLLPL…</span>.
+       The free <b>UniProt</b> database has one for nearly every known protein.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="step-title">Find a protein on UniProt</div>
+        <a class="btn primary" href="https://www.uniprot.org" target="_blank" rel="noopener">Open UniProt.org ↗</a>
+        <p>Search for a protein by name, then click one of the results. Entries marked
+           <b>Reviewed</b> (gold star) are the most reliable. Not sure what to search? Try one of these:</p>
+        <div class="ideas">${ideas}</div>
+      </li>
+      <li>
+        <div class="step-title">Copy its sequence</div>
+        <p>On the protein’s page, scroll down to the <b>Sequence</b> section and click <b>Copy sequence</b>.
+           You can also click <b>Download</b> and save it as a <b>FASTA</b> file.</p>
+      </li>
+      <li>
+        <div class="step-title">Paste or upload it here</div>
+        <label class="field"><span>Sequence</span>
+          <textarea id="loadText" rows="5" placeholder="Paste the sequence here, e.g.&#10;MALWMRLLPLLALLALWGPDPAAAFVNQHLCGSHLVEALYLVCGERGFFYTPKT…"></textarea></label>
+        <div class="row">
+          <input type="text" id="loadName" class="grow" placeholder="Give it a name, e.g. Insulin">
+          <label class="btn">📁 Upload FASTA<input type="file" id="loadFile" accept=".fasta,.fa,.faa,.txt" hidden></label>
+          <button class="btn primary" data-act="load">Load</button>
+        </div>
+        <p class="err" id="loadErr"></p>
+        <p class="note">This becomes your <b>wild-type (WT)</b>, the original that your mutations are compared against.
+           If a file holds several sequences, the first is the WT and the rest are added for comparison.</p>
+      </li>
+    </ol>
+    <p class="note">Just want to look around? <button class="linkish" data-act="example">Load human β-globin instead</button>.</p>
+  </section>`;
+}
+
+// Shown once a WT is loaded but there is nothing to compare it with yet
+function nextStepHtml() {
+  const seq = ws().seqs[0].seq, pos = Math.min(10, seq.length);
+  const from = seq[pos - 1], to = from === 'P' ? 'G' : 'P';
+  return `
+  <section class="card nextstep">
+    <div class="eyebrow">Next steps</div>
+    <ol>
+      <li>Press <b>Play</b> to hear your protein. Each square is one amino acid, played left to right.</li>
+      <li>Make a mutated version in the <b>Make a mutation</b> box. For example, type
+          <span class="mono">${from}${pos}${to}</span> to change position ${pos} from ${AA[from].name} to ${AA[to].name}.</li>
+      <li>Press <b>Play</b> again with <b>Compare with WT</b> on to hear exactly what changed.</li>
+    </ol>
   </section>`;
 }
 
