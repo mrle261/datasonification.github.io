@@ -1240,6 +1240,19 @@ document.addEventListener('keydown', e => {
   togglePlay();
 });
 
+// ── Streamlit embed ──────────────────────────────────────────────────────────
+// When v_2protein_synth_app.py hosts this page as a Streamlit component, report the
+// page height so the frame fits the content (no empty space, no inner scrollbar).
+if (window.parent !== window) {
+  const send = msg => window.parent.postMessage({ isStreamlitMessage: true, ...msg }, '*');
+  send({ type: 'streamlit:componentReady', apiVersion: 1 });
+  let lastHeight = 0;
+  new ResizeObserver(() => {
+    const height = Math.ceil(document.body.getBoundingClientRect().height);
+    if (height !== lastHeight) { lastHeight = height; send({ type: 'streamlit:setFrameHeight', height }); }
+  }).observe(document.body);
+}
+
 // ── Start ────────────────────────────────────────────────────────────────────
 render();
 const welcome = $('welcome');

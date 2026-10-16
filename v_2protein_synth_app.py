@@ -4,7 +4,8 @@ Data Sonification — Bradley Lab
 
 The whole app (sequence viewer, mutation tools, Tone.js audio) lives in
 index.html so it can also be served as a static page on GitHub Pages.
-This file embeds that page in Streamlit.
+This file embeds that page in Streamlit as a component; the page reports
+its own height, so the frame always fits the content.
 
 Run with: streamlit run v_2protein_synth_app.py
 """
@@ -26,10 +27,15 @@ st.markdown(
 <style>
 header[data-testid="stHeader"], footer { display: none; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
+[data-testid="stVerticalBlock"] { gap: 0 !important; }
+iframe { display: block; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-APP_HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
-components.html(APP_HTML, height=1700, scrolling=True)
+# Serves index.html from this folder; height comes from the page itself
+data_sonification = components.declare_component(
+    "data_sonification", path=str(Path(__file__).parent)
+)
+data_sonification(default=None)
